@@ -122,8 +122,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
-          path: packaging-source
           persist-credentials: false
+
+      # The OpenClaw checkout below must own GITHUB_WORKSPACE because its
+      # composite setup action resolves workspace files from that root. Keep
+      # the packaging-owned validator outside the workspace before replacing
+      # this checkout with the OpenClaw source tree.
+      - name: Stage build identity validator
+        shell: pwsh
+        run: >
+          Copy-Item
+          ./scripts/Test-OpenClawBuildIdentity.ps1
+          $env:RUNNER_TEMP/Test-OpenClawBuildIdentity.ps1
 
       - name: Check out OpenClaw source
         uses: actions/checkout@v7
@@ -150,8 +160,8 @@ jobs:
       - name: Validate OpenClaw build identities
         shell: pwsh
         run: >
-          ./packaging-source/scripts/Test-OpenClawBuildIdentity.ps1
-          -OpenClawDirectory ./openclaw-source
+          & "$env:RUNNER_TEMP/Test-OpenClawBuildIdentity.ps1"
+          -OpenClawDirectory $env:GITHUB_WORKSPACE
 
       - name: Pack npm package
         id: source
