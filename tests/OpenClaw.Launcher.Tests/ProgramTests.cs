@@ -294,6 +294,79 @@ public sealed class ProgramTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The redirect is appended to the agent's own <c>NODE_OPTIONS</c>, never
+    /// substituted for it, so settings such as <c>--max-old-space-size</c>
+    /// survive setup.
+    /// </summary>
+    [Fact]
+    public async Task AgentLaunchAppendsTheNativeRedirectToInheritedNodeOptions()
+    {
+        string applicationDirectory = await CreateApplicationAsync().ConfigureAwait(true);
+        HostOptions setupOptions = CreateSetupOptions(applicationDirectory);
+        SessionRuntime runtime = CreateSessionRuntime();
+        int setupExitCode = await Program.RunControlAsync(
+            setupOptions,
+            ["setup"],
+            _ => { },
+            TextWriter.Null,
+            TextWriter.Null,
+            installationLifecycle: new FailingFreshLifecycle(runtime) { TeardownSucceeds = true });
+        Assert.Equal(0, setupExitCode);
+
+        // Stands in for a setup that staged native packages.
+        string nativeRoot = Path.Combine(_testDirectory, "agent-native", "0123456789abcdef");
+        Directory.CreateDirectory(nativeRoot);
+        SetupRecord staged = runtime.SetupState.Read(runtime.ApplicationId).Record!;
+        runtime.SetupState.Write(staged with { AgentNativeRoot = nativeRoot });
+
+        string nodeOptions = string.Empty;
+        _lastSessionBackend!.AttachedBehavior = _ =>
+        {
+            string requestPath = Directory.GetFiles(
+                _lastSessionBackend.Metadata!.EphemeralWorkspacePath,
+                "launch-*.json").Single();
+            SessionLaunchRequest request = SessionLaunchProtocol.ReadRequest(
+                File.ReadAllText(requestPath));
+            if (request.Environment!.TryGetValue(
+                OpenClawRuntimeEnvironment.NodeOptionsVariable,
+                out string? captured))
+            {
+                nodeOptions = captured;
+            }
+
+            File.WriteAllText(
+                SessionLaunchProtocol.ResultPathFor(requestPath),
+                SessionLaunchProtocol.SerializeResult(new SessionLaunchResult
+                {
+                    RequestId = request.RequestId,
+                    Launched = true,
+                    ExitCode = 0,
+                }));
+            return Task.FromResult(0);
+        };
+
+        await Program.RunAgentAsync(
+            new HostOptions(
+                applicationDirectory,
+                setupOptions.PackagedNodeArchivePath,
+                ["doctor"]),
+            _ => { },
+            _ => runtime,
+            probeReadiness: SupportedHost,
+            getPackageFamilyName: () => runtime.Paths.PackageFamilyName,
+            readEnvironmentVariable: name =>
+                name == OpenClawRuntimeEnvironment.NodeOptionsVariable
+                    ? "--max-old-space-size=4096"
+                    : null).ConfigureAwait(true);
+
+        string options = nodeOptions;
+        Assert.StartsWith("--max-old-space-size=4096 ", options, StringComparison.Ordinal);
+        Assert.Contains(
+            OpenClawRuntimeEnvironment.NativeRedirectFileName,
+            options,
+            StringComparison.Ordinal);    }
+
     [Fact]
     public async Task AgentControlCExitsSilentlyWithPortableInterruptedCode()
     {

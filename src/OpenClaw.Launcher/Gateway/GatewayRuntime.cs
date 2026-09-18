@@ -236,7 +236,9 @@ internal sealed partial class GatewayRuntime
                 OpenClawRuntimeEnvironment.BuildNativeRedirect(
                     applicationDirectory,
                     nativeRoot,
-                    Program.ResolveNativeRedirectPreloadPath()));
+                    Program.ResolveNativeRedirectPreloadPath(),
+                    Environment.GetEnvironmentVariable(
+                        OpenClawRuntimeEnvironment.NodeOptionsVariable)));
         }
 
         bool IsCurrentSessionRecord(SessionRecord record)

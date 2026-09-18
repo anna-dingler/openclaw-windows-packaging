@@ -411,7 +411,9 @@ internal static class Program
             OpenClawRuntimeEnvironment.BuildNativeRedirect(
                 applicationDirectory,
                 nativeRoot,
-                ResolveNativeRedirectPreloadPath()));
+                ResolveNativeRedirectPreloadPath(),
+                readEnvironmentVariable(
+                    OpenClawRuntimeEnvironment.NodeOptionsVariable)));
     }
 
     internal static string ResolveNativeRedirectPreloadPath() =>

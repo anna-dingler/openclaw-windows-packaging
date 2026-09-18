@@ -28,7 +28,7 @@ internal static class OpenClawRuntimeEnvironment
     public const string NativeApplicationRootVariable = "OPENCLAW_NATIVE_APP_ROOT";
     public const string NativeStagedRootVariable = "OPENCLAW_NATIVE_STAGED_ROOT";
 
-    private const string NodeOptionsVariable = "NODE_OPTIONS";
+    public const string NodeOptionsVariable = "NODE_OPTIONS";
 
     /// <summary>
     /// Directory holding the packaged Node.js redirect preload, relative to

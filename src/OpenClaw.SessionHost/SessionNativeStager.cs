@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -41,6 +40,7 @@ internal static class SessionNativeStager
 
     private const string ModulesDirectoryName = "node_modules";
     private const string MarkerFileName = ".staged-content-id";
+    private const string DiscardedPrefix = ".discarded-";
 
     /// <summary>
     /// File kinds that cannot be loaded from the package by this identity.
@@ -104,9 +104,16 @@ internal static class SessionNativeStager
             // an interrupted staging is redone rather than trusted.
             File.WriteAllText(Path.Combine(staging, MarkerFileName), contentId);
 
+            // An existing root here failed the marker check, so it is stale or
+            // incomplete. Renamed rather than deleted in place, for the same
+            // reason superseded roots are.
             if (Directory.Exists(root))
             {
-                Directory.Delete(root, recursive: true);
+                Directory.Move(
+                    root,
+                    Path.Combine(
+                        Path.GetDirectoryName(root)!,
+                        $"{DiscardedPrefix}{Guid.NewGuid():N}"));
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(root)!);
@@ -209,36 +216,36 @@ internal static class SessionNativeStager
     /// and a changed one cannot be mistaken for it.
     /// </summary>
     /// <remarks>
-    /// Package content is immutable once installed, so the name, size, and
-    /// write time of every staged file identify it without reading 50 MB of
-    /// content on a path that runs during setup.
+    /// The identifier covers each staged file's path and its bytes. Size and
+    /// write time are not sufficient: an npm package republished at the same
+    /// length keeps the timestamps its tarball carries, and a Developer Mode
+    /// layout is rewritten in place, so either could otherwise present changed
+    /// executable content under an identifier already on disk.
     /// </remarks>
     private static string ComputeContentId(
         string modulesDirectory,
         IReadOnlyList<string> packages)
     {
-        var builder = new StringBuilder();
+        using IncrementalHash content =
+            IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (string package in packages)
         {
             string packageDirectory = Path.Combine(modulesDirectory, package);
-            builder.Append(package).Append('\n');
+            content.AppendData(Encoding.UTF8.GetBytes($"{package}\n"));
             foreach (string file in Directory
                 .EnumerateFiles(packageDirectory, "*", SearchOption.AllDirectories)
                 .Order(StringComparer.OrdinalIgnoreCase))
             {
-                var info = new FileInfo(file);
-                builder
-                    .Append(Path.GetRelativePath(modulesDirectory, file))
-                    .Append('|')
-                    .Append(info.Length.ToString(CultureInfo.InvariantCulture))
-                    .Append('|')
-                    .Append(info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture))
-                    .Append('\n');
+                content.AppendData(
+                    Encoding.UTF8.GetBytes(
+                        $"{Path.GetRelativePath(modulesDirectory, file)}|"));
+                using FileStream stream = File.OpenRead(file);
+                content.AppendData(SHA256.HashData(stream));
+                content.AppendData("\n"u8);
             }
         }
 
-        return Convert.ToHexStringLower(
-            SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())))[..32];
+        return Convert.ToHexStringLower(content.GetCurrentHash())[..32];
     }
 
     private static void CopyDirectory(string source, string destination)
@@ -261,27 +268,49 @@ internal static class SessionNativeStager
     /// Drops roots left by earlier package versions, so upgrades do not
     /// accumulate a mirrored copy each.
     /// </summary>
+    /// <remarks>
+    /// Setup reuses a running session, so a superseded root can still be the
+    /// one a gateway or foreground process is loading from. Deleting it
+    /// directly would remove that process's unlocked files before failing on
+    /// the first mapped image, so each root is renamed first: Windows refuses
+    /// to rename a directory that holds an open file, which leaves a root
+    /// still in use whole and reclaimable by a later setup.
+    /// </remarks>
     private static void RemoveSupersededRoots(string parent, string contentId)
     {
         foreach (string directory in Directory.EnumerateDirectories(parent))
         {
-            if (string.Equals(
-                Path.GetFileName(directory),
-                contentId,
-                StringComparison.Ordinal))
+            string name = Path.GetFileName(directory);
+            if (string.Equals(name, contentId, StringComparison.Ordinal))
             {
                 continue;
             }
 
+            string discarded = directory;
+            if (!name.StartsWith(DiscardedPrefix, StringComparison.Ordinal))
+            {
+                discarded = Path.Combine(parent, $"{DiscardedPrefix}{Guid.NewGuid():N}");
+                try
+                {
+                    Directory.Move(directory, discarded);
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    // Still in use. Left intact for a later setup to reclaim.
+                    continue;
+                }
+            }
+
             try
             {
-                Directory.Delete(directory, recursive: true);
+                Directory.Delete(discarded, recursive: true);
             }
             catch (Exception exception) when (
                 exception is IOException or UnauthorizedAccessException)
             {
-                // A superseded copy still in use by a running agent process is
-                // reclaimed by the next setup rather than failing this one.
+                // Renamed out of the way already, so no consumer can resolve
+                // into it; the remaining files are removed by a later setup.
             }
         }
     }

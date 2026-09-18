@@ -145,6 +145,68 @@ public sealed class SessionNativeStagerTests : IDisposable
             File.ReadAllText(Path.Combine(second, "node_modules", "koffi", "koffi.node")));
     }
 
+    /// <summary>
+    /// Content identity must come from bytes. Size and write time are not
+    /// enough: a republished package can keep both.
+    /// </summary>
+    [Fact]
+    public void ChangedContentAtTheSameLengthAndTimestampStagesAgain()
+    {
+        string application = Path.Combine(_root, "app");
+        string modules = Path.Combine(application, "node_modules");
+        string native = Path.Combine(modules, @"koffi\koffi.node");
+        WriteFile(modules, @"koffi\koffi.node", "native-aaa");
+        string local = Path.Combine(_root, "local");
+        DateTime written = File.GetLastWriteTimeUtc(native);
+
+        string first = SessionNativeStager.Stage(application, local)!;
+
+        File.WriteAllText(native, "native-bbb");
+        File.SetLastWriteTimeUtc(native, written);
+        Assert.Equal(written, File.GetLastWriteTimeUtc(native));
+
+        string second = SessionNativeStager.Stage(application, local)!;
+
+        Assert.NotEqual(first, second);
+        Assert.Equal(
+            "native-bbb",
+            File.ReadAllText(Path.Combine(second, @"node_modules\koffi\koffi.node")));
+    }
+
+    /// <summary>
+    /// A superseded root can still be the one a running gateway loads from.
+    /// Reclaiming it must be all-or-nothing, never a partial delete that
+    /// removes that process's unlocked files.
+    /// </summary>
+    [Fact]
+    public void ASupersededRootStillInUseIsLeftIntact()
+    {
+        string application = Path.Combine(_root, "app");
+        string modules = Path.Combine(application, "node_modules");
+        WriteFile(modules, @"koffi\koffi.node", "native");
+        WriteFile(modules, @"koffi\index.js", "loader");
+        string local = Path.Combine(_root, "local");
+
+        string first = SessionNativeStager.Stage(application, local)!;
+        string stagedNative = Path.Combine(first, @"node_modules\koffi\koffi.node");
+        string stagedLoader = Path.Combine(first, @"node_modules\koffi\index.js");
+
+        // Stands in for the mapped native image a running process holds.
+        using (File.Open(stagedNative, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            WriteFile(modules, @"koffi\koffi.node", "a different native payload");
+            string second = SessionNativeStager.Stage(application, local)!;
+
+            Assert.NotEqual(first, second);
+            Assert.True(
+                File.Exists(stagedLoader),
+                "Reclaiming an in-use root must not delete the files around the "
+                    + "locked one.");
+            Assert.Equal("loader", File.ReadAllText(stagedLoader));
+            Assert.Equal("native", File.ReadAllText(stagedNative));
+        }
+    }
+
     [Fact]
     public void AnApplicationWithoutNativeArtifactsStagesNothing()
     {
