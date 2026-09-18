@@ -181,7 +181,12 @@ package.
   session; never copy the OpenClaw application payload. Node.js installation
   belongs to `SessionRuntimeInstaller` and targets the agent account's profile,
   not package LocalState, because the agent identity cannot read the launcher's
-  LocalState.
+  LocalState. The sole exception is native dependency staging: the
+  isolated-session identity may read packaged files but may not map them as
+  executable images, so `clawctl setup` mirrors only the packages carrying
+  `.node`, `.dll`, or `.exe` artifacts into agent LocalState and redirects
+  resolution there. Discover that set by scanning `app\node_modules`; never
+  hard-code a package list.
 - Sessions are mandatory and explicit. `clawctl setup` owns provisioning and
   writes the setup marker; `openclaw` starts only the recorded session and
   never provisions implicitly. Do not add an implicit-provisioning fallback.

@@ -226,6 +226,17 @@ internal sealed class SessionRuntime
         return executablePath;
     }
 
+    /// <summary>
+    /// Returns the agent-owned root holding the mirrored native dependency
+    /// packages, or <see langword="null"/> when setup staged none.
+    /// </summary>
+    /// <remarks>
+    /// Absence is not an error: an application without native dependencies
+    /// stages nothing, and the redirect is simply not applied.
+    /// </remarks>
+    public string? GetAgentNativeRoot() =>
+        SetupState.Read(ApplicationId).Record?.AgentNativeRoot;
+
     /// <summary>Records a completed guest runtime installation.</summary>
     public void CompleteSetup(
         SessionRecord session,
@@ -244,7 +255,8 @@ internal sealed class SessionRuntime
             CompletedUtc = DateTimeOffset.UtcNow,
             AgentNodePath = runtime.ExecutablePath,
             AgentNodeVersion = runtime.Version,
-            AgentNodeArchive = runtime.ArchiveName
+            AgentNodeArchive = runtime.ArchiveName,
+            AgentNativeRoot = runtime.NativeRootPath
         });
     }
 

@@ -16,6 +16,28 @@ internal static class OpenClawRuntimeEnvironment
     public const string NoAutoUpdateVariable = "OPENCLAW_NO_AUTO_UPDATE";
     public const string GatewayIsolationVariable = "CLAWCTL_GATEWAY_ISOLATION";
 
+    /// <summary>
+    /// The packaged application root whose native dependency packages were
+    /// mirrored, and the agent-owned root holding those copies.
+    /// </summary>
+    /// <remarks>
+    /// Read by the packaged redirect preload. The agent identity cannot map
+    /// packaged files as executable images, so native addons must resolve to
+    /// the staged copies instead.
+    /// </remarks>
+    public const string NativeApplicationRootVariable = "OPENCLAW_NATIVE_APP_ROOT";
+    public const string NativeStagedRootVariable = "OPENCLAW_NATIVE_STAGED_ROOT";
+
+    private const string NodeOptionsVariable = "NODE_OPTIONS";
+
+    /// <summary>
+    /// Directory holding the packaged Node.js redirect preload, relative to
+    /// the application base.
+    /// </summary>
+    public const string NodeScriptDirectoryName = "node";
+
+    public const string NativeRedirectFileName = "native-redirect.mjs";
+
     public const string ExternalValue = "external";
     public const string NoAutoUpdateValue = "1";
 
@@ -100,6 +122,44 @@ internal static class OpenClawRuntimeEnvironment
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Builds the variables that point OpenClaw's Node.js processes at the
+    /// staged native dependency packages.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Delivered through <c>NODE_OPTIONS</c> rather than the command line
+    /// because OpenClaw starts its own Node.js workers and child services,
+    /// which inherit the environment but not this process's arguments. Those
+    /// children load the same native addons, so the redirect has to reach them
+    /// too.
+    /// </para>
+    /// <para>
+    /// The preload is named as a percent-encoded file URL, which keeps the
+    /// space in "Program Files" out of the option string.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> BuildNativeRedirect(
+        string applicationDirectory,
+        string stagedRootPath,
+        string preloadPath,
+        string? existingNodeOptions = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stagedRootPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(preloadPath);
+
+        string option = $"--import {new Uri(preloadPath).AbsoluteUri}";
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [NodeOptionsVariable] = string.IsNullOrWhiteSpace(existingNodeOptions)
+                ? option
+                : $"{existingNodeOptions} {option}",
+            [NativeApplicationRootVariable] = applicationDirectory,
+            [NativeStagedRootVariable] = stagedRootPath,
+        };
     }
 
     /// <summary>

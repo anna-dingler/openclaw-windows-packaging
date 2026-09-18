@@ -29,6 +29,12 @@ public sealed class SessionRuntimeInstallerTests : IDisposable
 
     private string RequestPath => Path.Combine(_root, "runtime.json");
 
+    /// <summary>
+    /// An application directory with no <c>node_modules</c>, so these tests
+    /// exercise the runtime install without staging native dependencies.
+    /// </summary>
+    private string ApplicationDirectory => Path.Combine(_root, "app");
+
     private SessionRuntimeInstallResult Run(string archivePath)
     {
         File.WriteAllText(
@@ -37,6 +43,7 @@ public sealed class SessionRuntimeInstallerTests : IDisposable
             {
                 RequestId = "r1",
                 ArchivePath = archivePath,
+                ApplicationDirectory = ApplicationDirectory,
 
                 // The account running tests is the developer's own, and its PATH
                 // is not this test's to change.
@@ -63,6 +70,7 @@ public sealed class SessionRuntimeInstallerTests : IDisposable
             {
                 RequestId = "r1",
                 ArchivePath = archivePath,
+                ApplicationDirectory = ApplicationDirectory,
                 UpdateUserPath = false
             }));
 
@@ -121,7 +129,8 @@ public sealed class SessionRuntimeInstallerTests : IDisposable
             SessionRuntimeProtocol.SerializeRequest(new SessionRuntimeInstallRequest
             {
                 RequestId = "r1",
-                ArchivePath = archivePath
+                ArchivePath = archivePath,
+                ApplicationDirectory = ApplicationDirectory
             }));
         string? persistedDirectory = null;
 
@@ -189,6 +198,7 @@ public sealed class SessionRuntimeInstallerTests : IDisposable
             {
                 RequestId = "r1",
                 ArchivePath = archivePath,
+                ApplicationDirectory = ApplicationDirectory,
                 UpdateUserPath = false
             }));
 

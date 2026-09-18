@@ -158,6 +158,12 @@
     <SessionHostContentDirectory>$(MSBuildThisFileDirectory)..\..\content\session-host\$(MxcRuntimeArchitecture)\</SessionHostContentDirectory>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Content Include="node\**\*.mjs"
+             Link="node\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(IncludePackagingContent)' == 'true'">
     <Content Include="$(MSBuildThisFileDirectory)..\..\content\openclaw\app\**\*"
              Link="app\%(RecursiveDir)%(Filename)%(Extension)"

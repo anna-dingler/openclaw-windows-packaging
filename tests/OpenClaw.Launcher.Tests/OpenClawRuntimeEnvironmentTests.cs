@@ -2,6 +2,61 @@ namespace OpenClaw.Launcher.Tests;
 
 public sealed class OpenClawRuntimeEnvironmentTests
 {
+    /// <summary>
+    /// The redirect travels in <c>NODE_OPTIONS</c> because OpenClaw starts its
+    /// own Node.js workers, which inherit the environment but not this
+    /// process's arguments.
+    /// </summary>
+    [Fact]
+    public void NativeRedirectNamesThePreloadAndBothRoots()
+    {
+        IReadOnlyDictionary<string, string> result =
+            OpenClawRuntimeEnvironment.BuildNativeRedirect(
+                @"C:\Package\app",
+                @"C:\Users\agent\AppData\Local\OpenClawGatewayMSIX\agent-native\abc",
+                @"C:\Package\node\native-redirect.mjs");
+
+        Assert.Equal(@"C:\Package\app", result["OPENCLAW_NATIVE_APP_ROOT"]);
+        Assert.Equal(
+            @"C:\Users\agent\AppData\Local\OpenClawGatewayMSIX\agent-native\abc",
+            result["OPENCLAW_NATIVE_STAGED_ROOT"]);
+        Assert.Equal(
+            "--import file:///C:/Package/node/native-redirect.mjs",
+            result["NODE_OPTIONS"]);
+    }
+
+    /// <summary>
+    /// The package installs under "Program Files", so the option value must
+    /// not contain a raw space that NODE_OPTIONS would split on.
+    /// </summary>
+    [Fact]
+    public void NativeRedirectEncodesSpacesInThePreloadPath()
+    {
+        string options = OpenClawRuntimeEnvironment.BuildNativeRedirect(
+            @"C:\Program Files\WindowsApps\OpenClaw\app",
+            @"C:\Users\agent\native",
+            @"C:\Program Files\WindowsApps\OpenClaw\node\native-redirect.mjs")
+            ["NODE_OPTIONS"];
+
+        Assert.DoesNotContain("Program Files", options, StringComparison.Ordinal);
+        Assert.Contains("Program%20Files", options, StringComparison.Ordinal);
+        Assert.Single(options.Split(' '), static part => part.StartsWith("file:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NativeRedirectAppendsToAnInheritedNodeOptions()
+    {
+        string options = OpenClawRuntimeEnvironment.BuildNativeRedirect(
+            @"C:\Package\app",
+            @"C:\Users\agent\native",
+            @"C:\Package\node\native-redirect.mjs",
+            "--max-old-space-size=4096")
+            ["NODE_OPTIONS"];
+
+        Assert.StartsWith("--max-old-space-size=4096 ", options, StringComparison.Ordinal);
+        Assert.EndsWith("native-redirect.mjs", options, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void BuildInteractiveAddsOnlyMissingTerminalHints()
     {

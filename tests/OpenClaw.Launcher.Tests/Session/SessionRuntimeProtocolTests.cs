@@ -10,7 +10,8 @@ public sealed class SessionRuntimeProtocolTests
     private static SessionRuntimeInstallRequest Valid() => new()
     {
         RequestId = "r1",
-        ArchivePath = @"C:\Package\runtime\node-v24.15.0-win-x64.zip"
+        ArchivePath = @"C:\Package\runtime\node-v24.15.0-win-x64.zip",
+        ApplicationDirectory = @"C:\Package\app"
     };
 
     [Fact]

@@ -34,6 +34,20 @@ public sealed record SessionRuntimeInstallRequest
     public string? ArchivePath { get; init; }
 
     /// <summary>
+    /// The packaged OpenClaw application directory whose native dependencies
+    /// the guest must mirror into its own profile.
+    /// </summary>
+    /// <remarks>
+    /// The agent identity may read package content but may not map it as an
+    /// executable image, so every <c>.node</c> and its sibling DLLs fail to
+    /// load directly from the package. Only the packages that carry native
+    /// artifacts are mirrored; all other application code keeps running from
+    /// the immutable package.
+    /// </remarks>
+    [JsonPropertyName("applicationDirectory")]
+    public string? ApplicationDirectory { get; init; }
+
+    /// <summary>
     /// Whether to prepend the installed directory to the agent's persistent
     /// user <c>PATH</c>.
     /// </summary>
@@ -72,6 +86,13 @@ public sealed record SessionRuntimeInstallResult
     /// <summary>Whether the agent's persistent user path was changed.</summary>
     [JsonPropertyName("userPathUpdated")]
     public bool UserPathUpdated { get; init; }
+
+    /// <summary>
+    /// The agent-owned root holding the mirrored native dependency packages,
+    /// or <see langword="null"/> when the application carries none.
+    /// </summary>
+    [JsonPropertyName("nativeRootPath")]
+    public string? NativeRootPath { get; init; }
 
     /// <summary>Set when the install could not be completed.</summary>
     [JsonPropertyName("error")]
@@ -160,6 +181,16 @@ public static class SessionRuntimeProtocol
         {
             throw new SessionLaunchException(
                 "The runtime install request has no fully qualified archive path.");
+        }
+
+        // The application directory is held to the same rule for the same
+        // reason: the guest copies executable content out of it.
+        if (string.IsNullOrWhiteSpace(request.ApplicationDirectory) ||
+            !Path.IsPathFullyQualified(request.ApplicationDirectory) ||
+            request.ApplicationDirectory.Contains("..", StringComparison.Ordinal))
+        {
+            throw new SessionLaunchException(
+                "The runtime install request has no fully qualified application directory.");
         }
 
         return request;

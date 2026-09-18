@@ -333,11 +333,13 @@ internal sealed class SessionExecutor
         SessionRecord record,
         string helperPath,
         string archivePath,
+        string applicationDirectory,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(record);
         ArgumentException.ThrowIfNullOrWhiteSpace(helperPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
 
         string requestId = _createRequestId();
         using var operation = new SessionWorkspaceOperation(record, _isCurrentRecord);
@@ -351,7 +353,8 @@ internal sealed class SessionExecutor
                 SessionRuntimeProtocol.SerializeRequest(new SessionRuntimeInstallRequest
                 {
                     RequestId = requestId,
-                    ArchivePath = archivePath
+                    ArchivePath = archivePath,
+                    ApplicationDirectory = applicationDirectory
                 }),
                 cancellationToken).ConfigureAwait(false);
 
