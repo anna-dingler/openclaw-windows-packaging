@@ -147,7 +147,12 @@ package.
 - Preserve direct execution of `app\openclaw.mjs` from the immutable package
   and the caller's working directory. Node.js extraction belongs only to
   `clawctl setup` and targets versioned package LocalState; do not copy the
-  OpenClaw application payload.
+  OpenClaw application payload. The sole exception is native dependency
+  staging: the isolated-session identity may read packaged files but may not
+  map them as executable images, so `clawctl setup` mirrors only the packages
+  carrying `.node`, `.dll`, or `.exe` artifacts into agent LocalState and
+  redirects resolution there. Discover that set by scanning `app\node_modules`;
+  never hard-code a package list.
 - The build-time inventory is a release trust boundary. Keep safe unique paths,
   lengths, and SHA-256 values synchronized across composition and signing
   validation.

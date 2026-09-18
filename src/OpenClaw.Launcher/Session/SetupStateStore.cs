@@ -47,6 +47,12 @@ internal sealed record SetupRecord
 
     [JsonPropertyName("agentNodeArchive")]
     public string? AgentNodeArchive { get; init; }
+
+    /// <summary>
+    /// The agent-owned root holding the mirrored native dependency packages.
+    /// </summary>
+    [JsonPropertyName("agentNativeRoot")]
+    public string? AgentNativeRoot { get; init; }
 }
 
 /// <summary>Why the explicit setup marker could not be used.</summary>

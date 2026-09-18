@@ -202,6 +202,26 @@ runtimes before reuse, replaces invalid runtimes, and validates extraction
 before publishing it. It does not prepare the invoking user's host runtime,
 because nothing runs on the host.
 
+Setup also mirrors the application's native dependency packages into the
+agent's own LocalState, under
+`%LOCALAPPDATA%\OpenClawGatewayMSIX\agent-native\<content-id>`. The
+isolated-session identity may read packaged files but may not map them as
+executable images, so loading a `.node` addon directly from the package fails
+with `ERR_DLOPEN_FAILED` even though the same bytes load from a writable
+location. Only the packages that carry a `.node`, `.dll`, or `.exe` artifact
+are mirrored; the rest of the application, which is nearly all of it, keeps
+executing from the immutable package.
+
+That set is discovered by scanning `app\node_modules`, never from a hard-coded
+list, so an upstream revision that introduces a new native dependency is staged
+automatically. Whole owning package directories are copied rather than
+individual binaries, because a package locates its sibling libraries and helper
+executables relative to its own directory. A packaged preload then redirects
+both CommonJS and ESM resolution to the staged copies, delivered through
+`NODE_OPTIONS` so that the Node.js workers OpenClaw starts inherit it. Staging
+is idempotent, keyed by package content, and removes the superseded copy after
+an upgrade.
+
 Run setup before using `openclaw`, `clawctl pwsh`, or gateway-service start.
 There is no session-free mode: `openclaw` runs inside the session recorded by
 setup, and both entry points fail with the same message on a machine that
@@ -512,6 +532,7 @@ is recorded in `release-policy.json`.
 | OpenClaw application files | Read-only MSIX package `app` directory |
 | Bundled Node.js archive | Read-only MSIX package `runtime` directory |
 | Extracted Node.js runtime | `%LOCALAPPDATA%\Packages\<package-family>\LocalState\OpenClaw\NodeJS\node-v<version>-win-<architecture>` |
+| Staged native dependency packages | `%LOCALAPPDATA%\OpenClawGatewayMSIX\agent-native\<content-id>` (agent account) |
 | OpenClaw configuration and user state | `%USERPROFILE%\.openclaw` |
 | Launcher diagnostics | `%LOCALAPPDATA%\Packages\<package-family>\LocalState\OpenClawGatewayMSIX\Logs\openclaw.log` |
 
@@ -537,6 +558,13 @@ the trust boundary for the application and archive. `clawctl setup` extracts
 the archive into versioned package LocalState; `openclaw` launches the packaged
 `app\openclaw.mjs` directly with that extracted executable. Neither command
 hashes or walks the expanded application inventory.
+
+Native dependency staging does not move that boundary. The copies live in the
+agent's own profile, which already holds the extracted Node.js runtime and is
+written and read by the same identity that executes it; nothing is staged into
+the guest-writable shared workspace. Application code continues to execute from
+the immutable package, and redirection is gated on a staged file existing, so a
+package that was not staged resolves exactly as before.
 
 The longer-term design is to run the Gateway payload in a dedicated isolated
 agent session rather than the interactive session where the human user is

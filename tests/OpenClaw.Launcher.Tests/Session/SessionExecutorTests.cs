@@ -221,6 +221,7 @@ public sealed class SessionExecutorTests : IDisposable
             Record(),
             @"C:\Package\session-host\x64\openclaw-session-host.exe",
             @"C:\Package\runtime\node-v24.20.0-win-x64.zip",
+            @"C:\Package\app",
             CancellationToken.None);
 
         Assert.Equal(

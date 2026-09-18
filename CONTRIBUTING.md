@@ -178,7 +178,12 @@ bypassable, and required CI checks remain authoritative.
 - Preserve direct execution of `app\openclaw.mjs` from the read-only MSIX
   package. `clawctl setup` owns idempotent extraction of the bundled Node.js
   archive into versioned package LocalState; do not copy the OpenClaw
-  application payload or use device-installed Node.js.
+  application payload or use device-installed Node.js. The one exception is
+  narrow and deliberate: the isolated-session identity cannot map packaged
+  files as executable images, so `clawctl setup` mirrors the dependency
+  packages that carry native artifacts into agent LocalState and redirects
+  resolution to them. That set is discovered by scanning, never hard-coded, and
+  everything else keeps executing from the package.
 - Keep x64 and ARM64 behavior synchronized across the workflow matrix, scripts,
   project runtime identifiers, manifest content, and signing validation.
 - Metadata files are part of the release trust chain. Coordinate changes across
