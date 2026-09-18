@@ -365,7 +365,8 @@ public sealed class ProgramTests : IDisposable
         Assert.Contains(
             OpenClawRuntimeEnvironment.NativeRedirectFileName,
             options,
-            StringComparison.Ordinal);    }
+            StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task AgentControlCExitsSilentlyWithPortableInterruptedCode()
