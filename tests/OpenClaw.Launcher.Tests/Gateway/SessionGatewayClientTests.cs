@@ -86,14 +86,60 @@ public sealed class SessionGatewayClientTests : IDisposable
     [Fact]
     public async Task RuntimeStartUsesSetupRecordedAgentNodeWithoutHostNodeResolution()
     {
+        (SessionLaunchRequest delivered, string agentNodePath, _) =
+            await StartGatewayAsync(nativeRootPath: null);
+
+        Assert.Equal(agentNodePath, delivered.Executable);
+        Assert.Equal(Path.GetDirectoryName(agentNodePath), delivered.PathPrefix);
+        Assert.Equal(
+            "enabled",
+            delivered.Environment![OpenClawRuntimeEnvironment.GatewayIsolationVariable]);
+    }
+
+    // The detached gateway launch is a second guest boundary. It must name the
+    // redirect the same way the attached launch does, so the supervised agent
+    // appends the preload to its own NODE_OPTIONS and the staged root is held
+    // for the gateway's lifetime.
+    [Fact]
+    public async Task ADetachedGatewayLaunchNamesTheNativeRedirectForTheAgentToCompose()
+    {
+        string nativeRootPath = Path.Combine(_root, "agent-native", "content");
+        Directory.CreateDirectory(nativeRootPath);
+
+        (SessionLaunchRequest delivered, _, _) = await StartGatewayAsync(nativeRootPath);
+
+        Assert.Equal(nativeRootPath, delivered.NativeRootPath);
+        Assert.NotNull(delivered.NodeOptionsSuffix);
+        Assert.StartsWith("--import ", delivered.NodeOptionsSuffix, StringComparison.Ordinal);
+        Assert.Contains(
+            OpenClawRuntimeEnvironment.NativeRedirectFileName,
+            delivered.NodeOptionsSuffix,
+            StringComparison.Ordinal);
+        Assert.False(delivered.Environment!.ContainsKey("NODE_OPTIONS"));
+    }
+
+    // A session without staged natives must not carry a redirect it cannot use.
+    [Fact]
+    public async Task AGatewayLaunchWithoutStagedNativesNamesNoRedirect()
+    {
+        (SessionLaunchRequest delivered, _, _) = await StartGatewayAsync(nativeRootPath: null);
+
+        Assert.Null(delivered.NativeRootPath);
+        Assert.Null(delivered.NodeOptionsSuffix);
+    }
+
+    private async Task<(SessionLaunchRequest Delivered, string AgentNodePath, SessionRuntime Session)>
+        StartGatewayAsync(string? nativeRootPath)
+    {
         string applicationDirectory = Path.Combine(_root, "app");
         string runtimeDirectory = Path.Combine(_root, "runtime");
         string archivePath = Path.Combine(runtimeDirectory, "node-v24.20.0-win-x64.zip");
         string agentNodePath = Path.Combine(_root, "agent-node", "node.exe");
         Directory.CreateDirectory(applicationDirectory);
         Directory.CreateDirectory(runtimeDirectory);
-        await File.WriteAllTextAsync(Path.Combine(applicationDirectory, "openclaw.mjs"), string.Empty);
-        await File.WriteAllTextAsync(archivePath, string.Empty);
+        await File.WriteAllTextAsync(Path.Combine(applicationDirectory, "openclaw.mjs"), string.Empty)
+            .ConfigureAwait(false);
+        await File.WriteAllTextAsync(archivePath, string.Empty).ConfigureAwait(false);
 
         HostPaths paths = HostPaths.ForRoot(_root, "OpenClaw.Gateway_abc123");
         _backend.Metadata = new MxcProvisionMetadata(
@@ -106,7 +152,8 @@ public sealed class SessionGatewayClientTests : IDisposable
             _root,
             _ => { },
             _backend);
-        SessionRecord record = await session.Coordinator.EnsureStartedAsync(CancellationToken.None);
+        SessionRecord record = await session.Coordinator.EnsureStartedAsync(CancellationToken.None)
+            .ConfigureAwait(false);
         session.CompleteSetup(
             record,
             new SessionRuntimeInstallResult
@@ -114,13 +161,14 @@ public sealed class SessionGatewayClientTests : IDisposable
                 ExecutablePath = agentNodePath,
                 Version = "24.20.0",
                 ArchiveName = Path.GetFileName(archivePath),
+                NativeRootPath = nativeRootPath,
             },
             startupEnabled: true);
         Directory.CreateDirectory(Path.GetDirectoryName(session.HelperPath)!);
-        await File.WriteAllTextAsync(session.HelperPath, string.Empty);
+        await File.WriteAllTextAsync(session.HelperPath, string.Empty).ConfigureAwait(false);
         string stagedHelperPath = SessionHelperStager.ResolveStagedPath(record.WorkspacePath!);
         Directory.CreateDirectory(Path.GetDirectoryName(stagedHelperPath)!);
-        await File.WriteAllTextAsync(stagedHelperPath, string.Empty);
+        await File.WriteAllTextAsync(stagedHelperPath, string.Empty).ConfigureAwait(false);
 
         SessionLaunchRequest? delivered = null;
         _backend.ExecuteBehavior = _ =>
@@ -164,13 +212,10 @@ public sealed class SessionGatewayClientTests : IDisposable
             paths,
             session,
             _ => { });
-        await runtime.Controller.StartAsync(runtime.HelperPath, CancellationToken.None);
+        await runtime.Controller.StartAsync(runtime.HelperPath, CancellationToken.None)
+            .ConfigureAwait(false);
 
         Assert.NotNull(delivered);
-        Assert.Equal(agentNodePath, delivered.Executable);
-        Assert.Equal(Path.GetDirectoryName(agentNodePath), delivered.PathPrefix);
-        Assert.Equal(
-            "enabled",
-            delivered.Environment![OpenClawRuntimeEnvironment.GatewayIsolationVariable]);
+        return (delivered, agentNodePath, session);
     }
 }

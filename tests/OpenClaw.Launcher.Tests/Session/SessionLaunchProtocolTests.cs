@@ -60,6 +60,27 @@ public sealed class SessionLaunchProtocolTests
         Assert.Equal("%NOT_EXPANDED%", restored.Environment!["LITERAL"]);
     }
 
+    // The guest composes PATH and NODE_OPTIONS from these named values, so a
+    // serialization gap would silently strip the native redirect rather than
+    // fail loudly.
+    [Fact]
+    public void TheNamedGuestComposedValuesSurviveTheRoundTrip()
+    {
+        SessionLaunchRequest request = Valid() with
+        {
+            PathPrefix = @"C:\agent\node",
+            NodeOptionsSuffix = "--import file:///C:/agent/native-redirect.mjs",
+            NativeRootPath = @"C:\agent\agent-native\content",
+        };
+
+        SessionLaunchRequest restored = SessionLaunchProtocol.ReadRequest(
+            SessionLaunchProtocol.SerializeRequest(request));
+
+        Assert.Equal(@"C:\agent\node", restored.PathPrefix);
+        Assert.Equal("--import file:///C:/agent/native-redirect.mjs", restored.NodeOptionsSuffix);
+        Assert.Equal(@"C:\agent\agent-native\content", restored.NativeRootPath);
+    }
+
     [Fact]
     public void AnUnsupportedSchemaVersionIsRejectedRatherThanInterpreted()
     {
