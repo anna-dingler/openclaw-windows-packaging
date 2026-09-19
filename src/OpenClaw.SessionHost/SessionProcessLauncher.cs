@@ -35,6 +35,8 @@ internal sealed record SessionDetachedProcess(int ProcessId, DateTimeOffset Star
 /// </summary>
 internal sealed class SessionProcessLauncher : ISessionProcessLauncher
 {
+    private const string NodeOptionsVariable = "NODE_OPTIONS";
+
     public int Run(SessionLaunchRequest request)
     {
         string workingDirectory = request.WorkingDirectory!;
@@ -69,6 +71,13 @@ internal sealed class SessionProcessLauncher : ISessionProcessLauncher
         PrependPath(startInfo, Path.GetDirectoryName(request.Executable));
 
         PrependPath(startInfo, request.PathPrefix);
+        AppendNodeOptions(startInfo, request.NodeOptionsSuffix);
+
+        // Held for the launched process's whole lifetime, including anything it
+        // starts that inherits the redirect, so setup cannot reclaim the root
+        // out from under it.
+        using FileStream? lease =
+            SessionNativeStager.OpenConsumerLease(request.NativeRootPath);
 
         using Process process = new() { StartInfo = startInfo };
         try
@@ -115,6 +124,36 @@ internal sealed class SessionProcessLauncher : ISessionProcessLauncher
         startInfo.Environment["PATH"] = string.IsNullOrEmpty(inherited)
             ? directory
             : $"{directory}{Path.PathSeparator}{inherited}";
+    }
+
+    /// <summary>
+    /// Adds options to the child's own <c>NODE_OPTIONS</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only the guest can do this, for the same reason only the guest can
+    /// prepend to <c>PATH</c>. The host's environment values are assigned over
+    /// this account's own, and the host's <c>NODE_OPTIONS</c> belongs to the
+    /// host: composing there would drop whatever the agent set and could push a
+    /// host-only preload path into the agent's Node.js processes, which then
+    /// fail to start.
+    /// </para>
+    /// <para>
+    /// Appending rather than prepending keeps the agent's own options first,
+    /// so this package's preload cannot displace one the agent depends on.
+    /// </para>
+    /// </remarks>
+    internal static void AppendNodeOptions(ProcessStartInfo startInfo, string? options)
+    {
+        if (string.IsNullOrWhiteSpace(options))
+        {
+            return;
+        }
+
+        startInfo.Environment.TryGetValue(NodeOptionsVariable, out string? inherited);
+        startInfo.Environment[NodeOptionsVariable] = string.IsNullOrWhiteSpace(inherited)
+            ? options
+            : $"{inherited} {options}";
     }
 
     /// <summary>

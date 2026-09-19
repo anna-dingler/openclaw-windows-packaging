@@ -212,6 +212,8 @@ internal sealed partial class GatewayRuntime
                 session.Backend,
                 log,
                 buildEnvironment: BuildGatewayEnvironment,
+                buildNodeOptionsSuffix: BuildGatewayNodeOptionsSuffix,
+                getNativeRootPath: session.GetAgentNativeRoot,
                 isCurrentRecord: IsCurrentSessionRecord),
             session.GatewayState,
             CreateRequestAsync,
@@ -235,11 +237,18 @@ internal sealed partial class GatewayRuntime
                 environment,
                 OpenClawRuntimeEnvironment.BuildNativeRedirect(
                     applicationDirectory,
-                    nativeRoot,
-                    Program.ResolveNativeRedirectPreloadPath(),
-                    Environment.GetEnvironmentVariable(
-                        OpenClawRuntimeEnvironment.NodeOptionsVariable)));
+                    nativeRoot));
         }
+
+        // The preload is named, not merged into the environment above: the
+        // agent's NODE_OPTIONS is the agent's, and this process's is the
+        // invoking host's.
+        string? BuildGatewayNodeOptionsSuffix() =>
+            options.PackagedApplicationDirectory is { Length: > 0 } &&
+                session.GetAgentNativeRoot() is { Length: > 0 }
+                ? OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+                    Program.ResolveNativeRedirectPreloadPath())
+                : null;
 
         bool IsCurrentSessionRecord(SessionRecord record)
         {

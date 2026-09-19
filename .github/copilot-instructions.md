@@ -198,6 +198,15 @@ package.
   allowlisted file set, and the per-file integrity checks in
   `scripts\Get-MxcRuntime.ps1` synchronized, and keep the staged runtime and
   session host in the build inventory for both architectures.
+- The agent account owns its own `PATH` and `NODE_OPTIONS`. Host-supplied
+  launch environment values are assigned over the agent's, so name the
+  directory or the Node.js option in the launch request and let the guest
+  compose it; never build either from the invoking host's environment.
+- Reclaim a staged native root only once nothing can still be running from it.
+  Every launch that carries the redirect holds its root open for its whole
+  lifetime, and a root that is still held is left whole for a later setup to
+  reclaim. Do not treat a successful rename or delete as a lifetime check on
+  its own.
 - The build-time inventory is a release trust boundary. Keep safe unique paths,
   lengths, and SHA-256 values synchronized across composition and signing
   validation.

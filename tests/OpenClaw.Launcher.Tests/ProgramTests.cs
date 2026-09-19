@@ -295,12 +295,13 @@ public sealed class ProgramTests : IDisposable
     }
 
     /// <summary>
-    /// The redirect is appended to the agent's own <c>NODE_OPTIONS</c>, never
-    /// substituted for it, so settings such as <c>--max-old-space-size</c>
-    /// survive setup.
+    /// The host never composes the agent's <c>NODE_OPTIONS</c>. It names the
+    /// preload, and the guest appends it to whatever the agent already set, so
+    /// settings such as <c>--max-old-space-size</c> survive setup and the
+    /// host's own value never reaches the agent.
     /// </summary>
     [Fact]
-    public async Task AgentLaunchAppendsTheNativeRedirectToInheritedNodeOptions()
+    public async Task AgentLaunchNamesTheNativeRedirectWithoutSettingNodeOptions()
     {
         string applicationDirectory = await CreateApplicationAsync().ConfigureAwait(true);
         HostOptions setupOptions = CreateSetupOptions(applicationDirectory);
@@ -320,7 +321,7 @@ public sealed class ProgramTests : IDisposable
         SetupRecord staged = runtime.SetupState.Read(runtime.ApplicationId).Record!;
         runtime.SetupState.Write(staged with { AgentNativeRoot = nativeRoot });
 
-        string nodeOptions = string.Empty;
+        SessionLaunchRequest? launched = null;
         _lastSessionBackend!.AttachedBehavior = _ =>
         {
             string requestPath = Directory.GetFiles(
@@ -328,12 +329,7 @@ public sealed class ProgramTests : IDisposable
                 "launch-*.json").Single();
             SessionLaunchRequest request = SessionLaunchProtocol.ReadRequest(
                 File.ReadAllText(requestPath));
-            if (request.Environment!.TryGetValue(
-                OpenClawRuntimeEnvironment.NodeOptionsVariable,
-                out string? captured))
-            {
-                nodeOptions = captured;
-            }
+            launched = request;
 
             File.WriteAllText(
                 SessionLaunchProtocol.ResultPathFor(requestPath),
@@ -357,15 +353,21 @@ public sealed class ProgramTests : IDisposable
             getPackageFamilyName: () => runtime.Paths.PackageFamilyName,
             readEnvironmentVariable: name =>
                 name == OpenClawRuntimeEnvironment.NodeOptionsVariable
-                    ? "--max-old-space-size=4096"
+                    ? "--host-only-flag"
                     : null).ConfigureAwait(true);
 
-        string options = nodeOptions;
-        Assert.StartsWith("--max-old-space-size=4096 ", options, StringComparison.Ordinal);
+        Assert.NotNull(launched);
         Assert.Contains(
             OpenClawRuntimeEnvironment.NativeRedirectFileName,
-            options,
+            launched.NodeOptionsSuffix,
             StringComparison.Ordinal);
+        Assert.Equal(nativeRoot, launched.NativeRootPath);
+
+        // The assigned environment must not carry NODE_OPTIONS at all: it
+        // would replace the agent's, and the host's value is not the agent's.
+        Assert.False(
+            launched.Environment!.ContainsKey(
+                OpenClawRuntimeEnvironment.NodeOptionsVariable));
     }
 
     [Fact]

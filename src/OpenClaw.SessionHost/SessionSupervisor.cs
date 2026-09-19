@@ -96,6 +96,12 @@ internal static class SessionSupervisor
             startInfo.Environment[name] = value;
         }
         SessionProcessLauncher.PrependPath(startInfo, request.PathPrefix);
+        SessionProcessLauncher.AppendNodeOptions(startInfo, request.NodeOptionsSuffix);
+
+        // Held for the supervised process's whole lifetime, so setup cannot
+        // reclaim the native root a running gateway resolves addons through.
+        using FileStream? lease =
+            SessionNativeStager.OpenConsumerLease(request.NativeRootPath);
 
         // The shared launcher creates suspended, assigns the job, then resumes.
         // Assigning after Process.Start leaves a window for orphan descendants.

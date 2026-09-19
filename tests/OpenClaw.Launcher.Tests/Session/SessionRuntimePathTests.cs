@@ -94,4 +94,46 @@ public sealed class SessionRuntimePathTests
 
         Assert.Equal(@"C:\Program Files\nodejs", startInfo.Environment["PATH"]);
     }
+
+    /// <summary>
+    /// Only the guest can compose the agent's <c>NODE_OPTIONS</c>. The host's
+    /// environment values are assigned over the agent's, so a value composed
+    /// on the host would drop whatever the agent set - and the host's own
+    /// <c>NODE_OPTIONS</c> is not the agent's to begin with.
+    /// </summary>
+    [Fact]
+    public void ALaunchAppendsToTheAgentsOwnNodeOptions()
+    {
+        System.Diagnostics.ProcessStartInfo startInfo = new();
+        startInfo.Environment["NODE_OPTIONS"] = "--max-old-space-size=4096";
+
+        SessionProcessLauncher.AppendNodeOptions(startInfo, "--import file:///C:/p/r.mjs");
+
+        Assert.Equal(
+            "--max-old-space-size=4096 --import file:///C:/p/r.mjs",
+            startInfo.Environment["NODE_OPTIONS"]);
+    }
+
+    [Fact]
+    public void ALaunchWithoutAgentNodeOptionsUsesJustTheSuffix()
+    {
+        System.Diagnostics.ProcessStartInfo startInfo = new();
+
+        SessionProcessLauncher.AppendNodeOptions(startInfo, "--import file:///C:/p/r.mjs");
+
+        Assert.Equal("--import file:///C:/p/r.mjs", startInfo.Environment["NODE_OPTIONS"]);
+    }
+
+    // A package that stages nothing must leave the agent's value untouched
+    // rather than blanking it.
+    [Fact]
+    public void ALaunchWithoutASuffixLeavesTheAgentsNodeOptionsAlone()
+    {
+        System.Diagnostics.ProcessStartInfo startInfo = new();
+        startInfo.Environment["NODE_OPTIONS"] = "--max-old-space-size=4096";
+
+        SessionProcessLauncher.AppendNodeOptions(startInfo, null);
+
+        Assert.Equal("--max-old-space-size=4096", startInfo.Environment["NODE_OPTIONS"]);
+    }
 }

@@ -17,6 +17,16 @@ internal sealed record SessionExecutionRequest(
     /// Environment determined by the host entrypoint for this invocation.
     /// </summary>
     public IReadOnlyDictionary<string, string>? AdditionalEnvironment { get; init; }
+
+    /// <summary>
+    /// Node.js options the agent appends to its own <c>NODE_OPTIONS</c>.
+    /// </summary>
+    public string? NodeOptionsSuffix { get; init; }
+
+    /// <summary>
+    /// The staged native dependency root this launch resolves addons through.
+    /// </summary>
+    public string? NativeRootPath { get; init; }
 }
 
 /// <summary>
@@ -46,6 +56,22 @@ internal sealed record SessionCommandRequest(
     /// see a variable that only the shell's shim needs.
     /// </remarks>
     public IReadOnlyDictionary<string, string>? AdditionalEnvironment { get; init; }
+
+    /// <summary>
+    /// Node.js options the agent appends to its own <c>NODE_OPTIONS</c>.
+    /// </summary>
+    /// <remarks>
+    /// Named rather than merged into <see cref="AdditionalEnvironment"/>
+    /// because that dictionary is assigned over the agent's environment, and
+    /// the host's own <c>NODE_OPTIONS</c> is not the agent's.
+    /// </remarks>
+    public string? NodeOptionsSuffix { get; init; }
+
+    /// <summary>
+    /// The staged native dependency root this command resolves addons through,
+    /// held open by the guest for the command's lifetime.
+    /// </summary>
+    public string? NativeRootPath { get; init; }
 }
 
 /// <summary>
@@ -110,7 +136,9 @@ internal sealed class SessionExecutor
                 PathPrefix = nodeDirectory,
                 AdditionalEnvironment = MergeEnvironment(
                     environment,
-                    request.AdditionalEnvironment)
+                    request.AdditionalEnvironment),
+                NodeOptionsSuffix = request.NodeOptionsSuffix,
+                NativeRootPath = request.NativeRootPath
             },
             "Running OpenClaw in the isolated session.",
             "OpenClaw",
@@ -150,6 +178,8 @@ internal sealed class SessionExecutor
             Environment = MergeEnvironment(
                 _buildEnvironment(), request.AdditionalEnvironment),
             PathPrefix = request.PathPrefix,
+            NodeOptionsSuffix = request.NodeOptionsSuffix,
+            NativeRootPath = request.NativeRootPath,
         };
 
         try

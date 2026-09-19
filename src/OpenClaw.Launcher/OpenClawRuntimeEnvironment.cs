@@ -129,6 +129,28 @@ internal static class OpenClawRuntimeEnvironment
     /// staged native dependency packages.
     /// </summary>
     /// <remarks>
+    /// The preload that reads them is not here. It belongs in
+    /// <c>NODE_OPTIONS</c>, which the agent account owns; see
+    /// <see cref="BuildNativeRedirectNodeOption"/>.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> BuildNativeRedirect(
+        string applicationDirectory,
+        string stagedRootPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stagedRootPath);
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [NativeApplicationRootVariable] = applicationDirectory,
+            [NativeStagedRootVariable] = stagedRootPath,
+        };
+    }
+
+    /// <summary>
+    /// Builds the Node.js option that loads the native dependency redirect.
+    /// </summary>
+    /// <remarks>
     /// <para>
     /// Delivered through <c>NODE_OPTIONS</c> rather than the command line
     /// because OpenClaw starts its own Node.js workers and child services,
@@ -137,29 +159,21 @@ internal static class OpenClawRuntimeEnvironment
     /// too.
     /// </para>
     /// <para>
+    /// Only the option is produced here. Appending it to an existing
+    /// <c>NODE_OPTIONS</c> happens where the agent's process environment is
+    /// built, because this process's own <c>NODE_OPTIONS</c> belongs to the
+    /// invoking host and says nothing about the agent's.
+    /// </para>
+    /// <para>
     /// The preload is named as a percent-encoded file URL, which keeps the
     /// space in "Program Files" out of the option string.
     /// </para>
     /// </remarks>
-    public static IReadOnlyDictionary<string, string> BuildNativeRedirect(
-        string applicationDirectory,
-        string stagedRootPath,
-        string preloadPath,
-        string? existingNodeOptions = null)
+    public static string BuildNativeRedirectNodeOption(string preloadPath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
-        ArgumentException.ThrowIfNullOrWhiteSpace(stagedRootPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(preloadPath);
 
-        string option = $"--import {new Uri(preloadPath).AbsoluteUri}";
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            [NodeOptionsVariable] = string.IsNullOrWhiteSpace(existingNodeOptions)
-                ? option
-                : $"{existingNodeOptions} {option}",
-            [NativeApplicationRootVariable] = applicationDirectory,
-            [NativeStagedRootVariable] = stagedRootPath,
-        };
+        return $"--import {new Uri(preloadPath).AbsoluteUri}";
     }
 
     /// <summary>

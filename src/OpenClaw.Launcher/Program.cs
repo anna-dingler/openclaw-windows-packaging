@@ -323,7 +323,9 @@ internal static class Program
                     runtime,
                     applicationDirectory,
                     interactive,
-                    environmentReader)
+                    environmentReader),
+                NodeOptionsSuffix = BuildNativeRedirectNodeOption(runtime),
+                NativeRootPath = runtime.GetAgentNativeRoot()
             },
             CancellationToken.None).ConfigureAwait(false);
         Gateway.GatewayController gateway = Gateway.GatewayRuntime
@@ -386,12 +388,14 @@ internal static class Program
     }
 
     /// <summary>
-    /// The environment for an OpenClaw launch, including the native dependency
-    /// redirect when setup staged one.
+    /// The environment for an OpenClaw launch, excluding the pieces the agent
+    /// account owns.
     /// </summary>
     /// <remarks>
     /// Built in one place so every launch path - foreground, gateway, and the
-    /// agent's own shell - resolves native addons the same way.
+    /// agent's own shell - resolves native addons the same way. The redirect's
+    /// preload is not here: it belongs in the agent's <c>NODE_OPTIONS</c>, and
+    /// this process's own <c>NODE_OPTIONS</c> is the host's, not the agent's.
     /// </remarks>
     private static IReadOnlyDictionary<string, string> BuildRuntimeEnvironment(
         Session.SessionRuntime runtime,
@@ -410,11 +414,18 @@ internal static class Program
             environment,
             OpenClawRuntimeEnvironment.BuildNativeRedirect(
                 applicationDirectory,
-                nativeRoot,
-                ResolveNativeRedirectPreloadPath(),
-                readEnvironmentVariable(
-                    OpenClawRuntimeEnvironment.NodeOptionsVariable)));
+                nativeRoot));
     }
+
+    /// <summary>
+    /// The Node.js option that loads the redirect, or <see langword="null"/>
+    /// when setup staged nothing to redirect to.
+    /// </summary>
+    private static string? BuildNativeRedirectNodeOption(Session.SessionRuntime runtime) =>
+        runtime.GetAgentNativeRoot() is { Length: > 0 }
+            ? OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+                ResolveNativeRedirectPreloadPath())
+            : null;
 
     internal static string ResolveNativeRedirectPreloadPath() =>
         Path.GetFullPath(
@@ -1133,7 +1144,9 @@ internal static class Program
                         applicationDirectory,
                         WindowsHostConsole.Instance.IsInteractive,
                         Environment.GetEnvironmentVariable),
-                    Session.AgentToolShim.BuildEnvironment(agentNodePath, applicationDirectory))
+                    Session.AgentToolShim.BuildEnvironment(agentNodePath, applicationDirectory)),
+                NodeOptionsSuffix = BuildNativeRedirectNodeOption(runtime),
+                NativeRootPath = runtime.GetAgentNativeRoot()
             },
             $"Opening {shell.DisplayName} in the isolated session.",
             shell.DisplayName,

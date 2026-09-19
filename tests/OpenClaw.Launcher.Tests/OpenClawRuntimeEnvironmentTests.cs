@@ -8,21 +8,30 @@ public sealed class OpenClawRuntimeEnvironmentTests
     /// process's arguments.
     /// </summary>
     [Fact]
-    public void NativeRedirectNamesThePreloadAndBothRoots()
+    public void NativeRedirectNamesBothRootsAndLeavesNodeOptionsToTheAgent()
     {
         IReadOnlyDictionary<string, string> result =
             OpenClawRuntimeEnvironment.BuildNativeRedirect(
                 @"C:\Package\app",
-                @"C:\Users\agent\AppData\Local\OpenClawGatewayMSIX\agent-native\abc",
-                @"C:\Package\node\native-redirect.mjs");
+                @"C:\Users\agent\AppData\Local\OpenClawGatewayMSIX\agent-native\abc");
 
         Assert.Equal(@"C:\Package\app", result["OPENCLAW_NATIVE_APP_ROOT"]);
         Assert.Equal(
             @"C:\Users\agent\AppData\Local\OpenClawGatewayMSIX\agent-native\abc",
             result["OPENCLAW_NATIVE_STAGED_ROOT"]);
+
+        // Assigned over the agent's environment, so a value composed here would
+        // replace whatever the agent already set.
+        Assert.False(result.ContainsKey("NODE_OPTIONS"));
+    }
+
+    [Fact]
+    public void NativeRedirectNodeOptionImportsThePreload()
+    {
         Assert.Equal(
             "--import file:///C:/Package/node/native-redirect.mjs",
-            result["NODE_OPTIONS"]);
+            OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+                @"C:\Package\node\native-redirect.mjs"));
     }
 
     /// <summary>
@@ -32,29 +41,12 @@ public sealed class OpenClawRuntimeEnvironmentTests
     [Fact]
     public void NativeRedirectEncodesSpacesInThePreloadPath()
     {
-        string options = OpenClawRuntimeEnvironment.BuildNativeRedirect(
-            @"C:\Program Files\WindowsApps\OpenClaw\app",
-            @"C:\Users\agent\native",
-            @"C:\Program Files\WindowsApps\OpenClaw\node\native-redirect.mjs")
-            ["NODE_OPTIONS"];
+        string options = OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+            @"C:\Program Files\WindowsApps\OpenClaw\node\native-redirect.mjs");
 
         Assert.DoesNotContain("Program Files", options, StringComparison.Ordinal);
         Assert.Contains("Program%20Files", options, StringComparison.Ordinal);
         Assert.Single(options.Split(' '), static part => part.StartsWith("file:", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void NativeRedirectAppendsToAnInheritedNodeOptions()
-    {
-        string options = OpenClawRuntimeEnvironment.BuildNativeRedirect(
-            @"C:\Package\app",
-            @"C:\Users\agent\native",
-            @"C:\Package\node\native-redirect.mjs",
-            "--max-old-space-size=4096")
-            ["NODE_OPTIONS"];
-
-        Assert.StartsWith("--max-old-space-size=4096 ", options, StringComparison.Ordinal);
-        Assert.EndsWith("native-redirect.mjs", options, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -69,10 +69,14 @@ internal sealed class SessionGatewayClient : ISessionGatewayClient
     private readonly IMxcSessionClient _backend;
     private readonly Action<string> _log;
     private readonly Func<IReadOnlyDictionary<string, string>> _buildEnvironment;
+    private readonly Func<string?> _buildNodeOptionsSuffix;
+    private readonly Func<string?> _getNativeRootPath;
     private readonly Func<SessionRecord, bool> _isCurrentRecord;
 
     public SessionGatewayClient(IMxcSessionClient backend, Action<string> log,
         Func<IReadOnlyDictionary<string, string>>? buildEnvironment = null,
+        Func<string?>? buildNodeOptionsSuffix = null,
+        Func<string?>? getNativeRootPath = null,
         Func<SessionRecord, bool>? isCurrentRecord = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
@@ -81,6 +85,8 @@ internal sealed class SessionGatewayClient : ISessionGatewayClient
         _log = log;
         _buildEnvironment = buildEnvironment ??
             OpenClawRuntimeEnvironment.Build;
+        _buildNodeOptionsSuffix = buildNodeOptionsSuffix ?? (() => null);
+        _getNativeRootPath = getNativeRootPath ?? (() => null);
         _isCurrentRecord = isCurrentRecord ?? (_ => true);
     }
 
@@ -130,6 +136,8 @@ internal sealed class SessionGatewayClient : ISessionGatewayClient
             PathPrefix = Path.GetDirectoryName(request.NodePath)
                 ?? throw new SessionException(
                     "The agent's Node.js runtime has no parent directory."),
+            NodeOptionsSuffix = _buildNodeOptionsSuffix(),
+            NativeRootPath = _getNativeRootPath(),
             LogPath = logPath,
             StatusPath = statusPath
         };

@@ -87,6 +87,11 @@ internal static class SessionNativeStager
                 contentId,
                 StringComparison.Ordinal))
         {
+            // Reclamation runs here too. An upgrade that could not take a root
+            // back because it still had a consumer must get another attempt
+            // once that consumer is gone, and after the upgrade every later
+            // setup sees unchanged content and returns through this path.
+            RemoveSupersededRoots(Path.GetDirectoryName(root)!, contentId);
             return root;
         }
 
@@ -129,6 +134,54 @@ internal static class SessionNativeStager
 
         RemoveSupersededRoots(Path.GetDirectoryName(root)!, contentId);
         return root;
+    }
+
+    /// <summary>
+    /// Holds a staged root against reclamation for as long as a process is
+    /// resolving native addons through it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A consumer is not identified by the files it has mapped. An agent shell
+    /// sitting at a prompt has the redirect in its environment and no staged
+    /// file open at all, yet every OpenClaw it later runs resolves through that
+    /// root. Reclaiming the root underneath it would send those runs back to
+    /// the packaged copies this identity cannot load.
+    /// </para>
+    /// <para>
+    /// The marker is opened without delete sharing, which is what makes
+    /// Windows refuse to rename the root while the lease is held. The caller
+    /// keeps the handle for the launched process's lifetime, so the rename
+    /// <see cref="RemoveSupersededRoots"/> attempts answers whether a consumer
+    /// is still alive.
+    /// </para>
+    /// <para>
+    /// A missing root or marker returns <see langword="null"/> rather than
+    /// failing: there is then nothing to protect, and a launch must never be
+    /// blocked by the bookkeeping that protects it.
+    /// </para>
+    /// </remarks>
+    public static FileStream? OpenConsumerLease(string? stagedRootPath)
+    {
+        if (string.IsNullOrWhiteSpace(stagedRootPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            return new FileStream(
+                Path.Combine(stagedRootPath, MarkerFileName),
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or
+            ArgumentException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -269,12 +322,20 @@ internal static class SessionNativeStager
     /// accumulate a mirrored copy each.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Setup reuses a running session, so a superseded root can still be the
-    /// one a gateway or foreground process is loading from. Deleting it
-    /// directly would remove that process's unlocked files before failing on
-    /// the first mapped image, so each root is renamed first: Windows refuses
-    /// to rename a directory that holds an open file, which leaves a root
-    /// still in use whole and reclaimable by a later setup.
+    /// one a gateway, a foreground launch, or an idle agent shell resolves
+    /// native addons through. Reclaiming such a root would leave that process
+    /// resolving back to the packaged copies it cannot load.
+    /// </para>
+    /// <para>
+    /// Every launch that carries the redirect holds <see cref="MarkerFileName"/>
+    /// open for its whole lifetime, which denies delete sharing and so makes
+    /// Windows refuse to rename the root. Renaming is therefore the lifetime
+    /// check, not merely a way to avoid a partial delete: a root that renames
+    /// has no live consumer, and one that does not is left whole for a later
+    /// setup to reclaim once its consumer ends.
+    /// </para>
     /// </remarks>
     private static void RemoveSupersededRoots(string parent, string contentId)
     {

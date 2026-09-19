@@ -64,6 +64,35 @@ public sealed record SessionLaunchRequest
     public string? PathPrefix { get; init; }
 
     /// <summary>
+    /// Node.js options to append to the launched process's own
+    /// <c>NODE_OPTIONS</c>.
+    /// </summary>
+    /// <remarks>
+    /// Named rather than composed by the host, for the same reason
+    /// <see cref="PathPrefix"/> is: <see cref="Environment"/> is assigned over
+    /// the guest account's own environment, so a host-composed
+    /// <c>NODE_OPTIONS</c> would replace whatever the agent already set. The
+    /// host's own <c>NODE_OPTIONS</c> is not the agent's and must never reach
+    /// the agent's Node.js processes.
+    /// </remarks>
+    [JsonPropertyName("nodeOptionsSuffix")]
+    public string? NodeOptionsSuffix { get; init; }
+
+    /// <summary>
+    /// The staged native dependency root this launch resolves addons through.
+    /// </summary>
+    /// <remarks>
+    /// Held open for the lifetime of the launched process so setup can tell a
+    /// root that still has a consumer from one that does not. Without it, a
+    /// process that merely inherited the root - an idle agent shell, say - is
+    /// indistinguishable from no consumer at all, and reclaiming the root
+    /// leaves that process resolving native addons back to the packaged copies
+    /// it cannot load.
+    /// </remarks>
+    [JsonPropertyName("nativeRootPath")]
+    public string? NativeRootPath { get; init; }
+
+    /// <summary>
     /// Detached only. Where the application's output is written, because a
     /// detached process has no console to inherit and the pipe it was started
     /// through closes as soon as the launching execution returns.

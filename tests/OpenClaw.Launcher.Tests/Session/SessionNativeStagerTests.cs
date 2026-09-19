@@ -207,6 +207,71 @@ public sealed class SessionNativeStagerTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// A consumer need not have any staged file open. An agent shell sitting
+    /// at a prompt has the redirect in its environment and nothing mapped, yet
+    /// every OpenClaw it later runs resolves through that root.
+    /// </summary>
+    [Fact]
+    public void ASupersededRootWithALiveConsumerAndNoOpenFilesIsLeftIntact()
+    {
+        string application = Path.Combine(_root, "app");
+        string modules = Path.Combine(application, "node_modules");
+        WriteFile(modules, @"koffi\koffi.node", "native");
+        string local = Path.Combine(_root, "local");
+
+        string first = SessionNativeStager.Stage(application, local)!;
+
+        using (FileStream? lease = SessionNativeStager.OpenConsumerLease(first))
+        {
+            Assert.NotNull(lease);
+
+            WriteFile(modules, @"koffi\koffi.node", "a different native payload");
+            string second = SessionNativeStager.Stage(application, local)!;
+
+            Assert.NotEqual(first, second);
+            Assert.Equal(
+                "native",
+                File.ReadAllText(Path.Combine(first, @"node_modules\koffi\koffi.node")));
+        }
+    }
+
+    /// <summary>
+    /// The retry the reclamation promises. After the upgrade, every later setup
+    /// sees unchanged content, so reclamation has to run on that path too or
+    /// releasing the consumer never frees the root.
+    /// </summary>
+    [Fact]
+    public void AReleasedRootIsReclaimedByTheNextUnchangedContentSetup()
+    {
+        string application = Path.Combine(_root, "app");
+        string modules = Path.Combine(application, "node_modules");
+        WriteFile(modules, @"koffi\koffi.node", "native");
+        string local = Path.Combine(_root, "local");
+
+        string first = SessionNativeStager.Stage(application, local)!;
+        string second;
+        using (SessionNativeStager.OpenConsumerLease(first))
+        {
+            WriteFile(modules, @"koffi\koffi.node", "a different native payload");
+            second = SessionNativeStager.Stage(application, local)!;
+            Assert.True(Directory.Exists(first));
+        }
+
+        // Content is unchanged now, so this is the reuse path.
+        Assert.Equal(second, SessionNativeStager.Stage(application, local));
+        Assert.False(
+            Directory.Exists(first),
+            "Releasing the consumer must let the next setup reclaim the root.");
+    }
+
+    [Fact]
+    public void AConsumerLeaseIsNotRequiredForALaunchToProceed()
+    {
+        Assert.Null(SessionNativeStager.OpenConsumerLease(null));
+        Assert.Null(SessionNativeStager.OpenConsumerLease(Path.Combine(_root, "missing")));
+    }
+
     [Fact]
     public void AnApplicationWithoutNativeArtifactsStagesNothing()
     {
