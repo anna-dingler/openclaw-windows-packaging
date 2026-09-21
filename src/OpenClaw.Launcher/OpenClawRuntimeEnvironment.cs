@@ -129,9 +129,10 @@ internal static class OpenClawRuntimeEnvironment
     /// staged native dependency packages.
     /// </summary>
     /// <remarks>
-    /// The preload that reads them is not here. It belongs in
-    /// <c>NODE_OPTIONS</c>, which the agent account owns; see
-    /// <see cref="BuildNativeRedirectNodeOption"/>.
+    /// The preload that reads them is not here. The launcher places it on the
+    /// Node.js argument vector so OpenClaw's reconstructed agent CLI retains
+    /// the runtime hook; the preload then propagates itself to ordinary child
+    /// processes through the agent-owned <c>NODE_OPTIONS</c>.
     /// </remarks>
     public static IReadOnlyDictionary<string, string> BuildNativeRedirect(
         string applicationDirectory,
@@ -148,32 +149,24 @@ internal static class OpenClawRuntimeEnvironment
     }
 
     /// <summary>
-    /// Builds the Node.js option that loads the native dependency redirect.
+    /// Builds the Node.js arguments that load the native dependency redirect.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Delivered through <c>NODE_OPTIONS</c> rather than the command line
-    /// because OpenClaw starts its own Node.js workers and child services,
-    /// which inherit the environment but not this process's arguments. Those
-    /// children load the same native addons, so the redirect has to reach them
-    /// too.
-    /// </para>
-    /// <para>
-    /// Only the option is produced here. Appending it to an existing
-    /// <c>NODE_OPTIONS</c> happens where the agent's process environment is
-    /// built, because this process's own <c>NODE_OPTIONS</c> belongs to the
-    /// invoking host and says nothing about the agent's.
+    /// OpenClaw reconstructs its current Node.js invocation when an agent calls
+    /// <c>openclaw</c>. Runtime arguments survive that reconstruction, whereas
+    /// relying only on ambient <c>NODE_OPTIONS</c> does not.
     /// </para>
     /// <para>
     /// The preload is named as a percent-encoded file URL, which keeps the
     /// space in "Program Files" out of the option string.
     /// </para>
     /// </remarks>
-    public static string BuildNativeRedirectNodeOption(string preloadPath)
+    public static IReadOnlyList<string> BuildNativeRedirectNodeArguments(string preloadPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(preloadPath);
 
-        return $"--import {new Uri(preloadPath).AbsoluteUri}";
+        return ["--import", new Uri(preloadPath).AbsoluteUri];
     }
 
     /// <summary>

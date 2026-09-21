@@ -3,9 +3,7 @@ namespace OpenClaw.Launcher.Tests;
 public sealed class OpenClawRuntimeEnvironmentTests
 {
     /// <summary>
-    /// The redirect travels in <c>NODE_OPTIONS</c> because OpenClaw starts its
-    /// own Node.js workers, which inherit the environment but not this
-    /// process's arguments.
+    /// The redirect roots remain separate from the agent's own Node.js options.
     /// </summary>
     [Fact]
     public void NativeRedirectNamesBothRootsAndLeavesNodeOptionsToTheAgent()
@@ -26,11 +24,11 @@ public sealed class OpenClawRuntimeEnvironmentTests
     }
 
     [Fact]
-    public void NativeRedirectNodeOptionImportsThePreload()
+    public void NativeRedirectNodeArgumentsImportThePreload()
     {
         Assert.Equal(
-            "--import file:///C:/Package/node/native-redirect.mjs",
-            OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+            ["--import", "file:///C:/Package/node/native-redirect.mjs"],
+            OpenClawRuntimeEnvironment.BuildNativeRedirectNodeArguments(
                 @"C:\Package\node\native-redirect.mjs"));
     }
 
@@ -41,12 +39,14 @@ public sealed class OpenClawRuntimeEnvironmentTests
     [Fact]
     public void NativeRedirectEncodesSpacesInThePreloadPath()
     {
-        string options = OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+        IReadOnlyList<string> arguments =
+            OpenClawRuntimeEnvironment.BuildNativeRedirectNodeArguments(
             @"C:\Program Files\WindowsApps\OpenClaw\node\native-redirect.mjs");
+        string preloadUrl = arguments[1];
 
-        Assert.DoesNotContain("Program Files", options, StringComparison.Ordinal);
-        Assert.Contains("Program%20Files", options, StringComparison.Ordinal);
-        Assert.Single(options.Split(' '), static part => part.StartsWith("file:", StringComparison.Ordinal));
+        Assert.Equal("--import", arguments[0]);
+        Assert.DoesNotContain("Program Files", preloadUrl, StringComparison.Ordinal);
+        Assert.Contains("Program%20Files", preloadUrl, StringComparison.Ordinal);
     }
 
     [Fact]

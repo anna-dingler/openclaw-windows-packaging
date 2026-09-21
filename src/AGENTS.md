@@ -13,7 +13,7 @@ Read the repository-root `AGENTS.md` before this file. This scope owns the three
 - `openclaw` arguments belong to upstream. Forward the original vector unchanged and keep System.CommandLine scoped to `clawctl`.
 - Sessions are mandatory and explicit. `clawctl setup` provisions and records one; `openclaw` starts only the recorded session and never provisions implicitly.
 - Keep packaged `app\openclaw.mjs` immutable and execute it from the package inside the session. Install Node.js in the agent profile and prepend that runtime to the agent process path. Mirror only packages discovered to carry `.node`, `.dll`, or `.exe` artifacts into agent LocalState, preserving each owning package directory; never hard-code the package set.
-- The launch request names the staged native root and preload option. The session host composes them with the agent account's `PATH` and `NODE_OPTIONS`; invoking-host values must not leak into the guest.
+- The launch request names the staged native root and places the preload on the agent Node.js argument vector so OpenClaw's reconstructed agent CLI retains it. The preload appends itself to the agent account's `NODE_OPTIONS` for ordinary child processes; invoking-host values must not leak into the guest.
 - Every launch using a staged native root holds it for its entire lifetime. Leave a held superseded root intact for a later setup to reclaim; a successful rename or delete is not proof that no process is using it.
 - Stage the session helper into the shared workspace during setup; the agent cannot execute it in place from another package identity's WindowsApps directory.
 - Preserve caller working directory and package-qualified entrypoint resolution. Unrecognized entrypoint names fall back only as documented and tested.

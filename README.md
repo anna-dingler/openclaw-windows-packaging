@@ -247,14 +247,15 @@ list, so an upstream revision that introduces a new native dependency is staged
 automatically. Whole owning package directories are copied rather than
 individual binaries, because a package locates its sibling libraries and helper
 executables relative to its own directory. A packaged preload then redirects
-both CommonJS and ESM resolution to the staged copies, delivered through
-`NODE_OPTIONS` so that the Node.js workers OpenClaw starts inherit it. The
-launcher names that preload rather than composing the variable, and the guest
-appends it to the agent account's own `NODE_OPTIONS`, so an option the agent
-set survives and the invoking host's value never reaches it. Staging is
-idempotent, keyed by package content, and reclaims the superseded copy after an
-upgrade once nothing is still running from it; a launch holds its root for its
-whole lifetime, and a root that is still held is left whole for a later setup.
+both CommonJS and ESM resolution to the staged copies. The launcher places that
+preload on the agent Node.js argument vector so OpenClaw retains it when an
+agent invokes `openclaw` again. Once loaded, the preload appends itself to the
+agent account's own `NODE_OPTIONS` for ordinary Node.js workers, so an option
+the agent set survives and the invoking host's value never reaches it. Staging
+is idempotent, keyed by package content, and reclaims the superseded copy after
+an upgrade once nothing is still running from it; a launch holds its root for
+its whole lifetime, and a root that is still held is left whole for a later
+setup.
 
 Run setup before using `openclaw`, `clawctl pwsh`, or gateway-service start.
 There is no session-free mode: `openclaw` runs inside the session recorded by

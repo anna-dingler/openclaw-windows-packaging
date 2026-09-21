@@ -295,10 +295,8 @@ public sealed class ProgramTests : IDisposable
     }
 
     /// <summary>
-    /// The host never composes the agent's <c>NODE_OPTIONS</c>. It names the
-    /// preload, and the guest appends it to whatever the agent already set, so
-    /// settings such as <c>--max-old-space-size</c> survive setup and the
-    /// host's own value never reaches the agent.
+    /// The preload travels on Node's argument vector so OpenClaw's reconstructed
+    /// agent CLI retains it without replacing the agent's <c>NODE_OPTIONS</c>.
     /// </summary>
     [Fact]
     public async Task AgentLaunchNamesTheNativeRedirectWithoutSettingNodeOptions()
@@ -357,10 +355,16 @@ public sealed class ProgramTests : IDisposable
                     : null).ConfigureAwait(true);
 
         Assert.NotNull(launched);
+        Assert.Equal("--import", launched.Arguments![0]);
         Assert.Contains(
             OpenClawRuntimeEnvironment.NativeRedirectFileName,
-            launched.NodeOptionsSuffix,
+            launched.Arguments[1],
             StringComparison.Ordinal);
+        Assert.Equal(
+            Path.Combine(applicationDirectory, "openclaw.mjs"),
+            launched.Arguments[2]);
+        Assert.Equal("doctor", launched.Arguments[3]);
+        Assert.Null(launched.NodeOptionsSuffix);
         Assert.Equal(nativeRoot, launched.NativeRootPath);
 
         // The assigned environment must not carry NODE_OPTIONS at all: it

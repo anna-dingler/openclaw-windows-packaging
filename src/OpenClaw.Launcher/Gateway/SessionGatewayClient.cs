@@ -69,13 +69,13 @@ internal sealed class SessionGatewayClient : ISessionGatewayClient
     private readonly IMxcSessionClient _backend;
     private readonly Action<string> _log;
     private readonly Func<IReadOnlyDictionary<string, string>> _buildEnvironment;
-    private readonly Func<string?> _buildNodeOptionsSuffix;
+    private readonly Func<IReadOnlyList<string>?> _buildNodeArgumentsPrefix;
     private readonly Func<string?> _getNativeRootPath;
     private readonly Func<SessionRecord, bool> _isCurrentRecord;
 
     public SessionGatewayClient(IMxcSessionClient backend, Action<string> log,
         Func<IReadOnlyDictionary<string, string>>? buildEnvironment = null,
-        Func<string?>? buildNodeOptionsSuffix = null,
+        Func<IReadOnlyList<string>?>? buildNodeArgumentsPrefix = null,
         Func<string?>? getNativeRootPath = null,
         Func<SessionRecord, bool>? isCurrentRecord = null)
     {
@@ -85,7 +85,7 @@ internal sealed class SessionGatewayClient : ISessionGatewayClient
         _log = log;
         _buildEnvironment = buildEnvironment ??
             OpenClawRuntimeEnvironment.Build;
-        _buildNodeOptionsSuffix = buildNodeOptionsSuffix ?? (() => null);
+        _buildNodeArgumentsPrefix = buildNodeArgumentsPrefix ?? (() => null);
         _getNativeRootPath = getNativeRootPath ?? (() => null);
         _isCurrentRecord = isCurrentRecord ?? (_ => true);
     }
@@ -118,7 +118,14 @@ internal sealed class SessionGatewayClient : ISessionGatewayClient
         // --port is added only when the user pinned one. Passing a port always
         // would outrank `gateway.port` in OpenClaw's own configuration and
         // silently move the gateway away from where its clients look.
-        List<string> arguments = [entryPoint, "gateway", "run"];
+        var arguments = new List<string>();
+        if (_buildNodeArgumentsPrefix() is { } nodeArgumentsPrefix)
+        {
+            arguments.AddRange(nodeArgumentsPrefix);
+        }
+        arguments.Add(entryPoint);
+        arguments.Add("gateway");
+        arguments.Add("run");
         if (request.Port is int port)
         {
             arguments.Add("--port");
@@ -136,7 +143,6 @@ internal sealed class SessionGatewayClient : ISessionGatewayClient
             PathPrefix = Path.GetDirectoryName(request.NodePath)
                 ?? throw new SessionException(
                     "The agent's Node.js runtime has no parent directory."),
-            NodeOptionsSuffix = _buildNodeOptionsSuffix(),
             NativeRootPath = _getNativeRootPath(),
             LogPath = logPath,
             StatusPath = statusPath

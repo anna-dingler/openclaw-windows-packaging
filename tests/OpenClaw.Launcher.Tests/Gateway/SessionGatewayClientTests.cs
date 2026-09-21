@@ -96,12 +96,11 @@ public sealed class SessionGatewayClientTests : IDisposable
             delivered.Environment![OpenClawRuntimeEnvironment.GatewayIsolationVariable]);
     }
 
-    // The detached gateway launch is a second guest boundary. It must name the
-    // redirect the same way the attached launch does, so the supervised agent
-    // appends the preload to its own NODE_OPTIONS and the staged root is held
-    // for the gateway's lifetime.
+    // The detached gateway launch is a second guest boundary. The preload must
+    // be a Node runtime argument so the gateway's reconstructed agent CLI keeps
+    // it, and the staged root must be held for the gateway's lifetime.
     [Fact]
-    public async Task ADetachedGatewayLaunchNamesTheNativeRedirectForTheAgentToCompose()
+    public async Task ADetachedGatewayLaunchCarriesTheNativeRedirectOnNodeArguments()
     {
         string nativeRootPath = Path.Combine(_root, "agent-native", "content");
         Directory.CreateDirectory(nativeRootPath);
@@ -109,12 +108,14 @@ public sealed class SessionGatewayClientTests : IDisposable
         (SessionLaunchRequest delivered, _, _) = await StartGatewayAsync(nativeRootPath);
 
         Assert.Equal(nativeRootPath, delivered.NativeRootPath);
-        Assert.NotNull(delivered.NodeOptionsSuffix);
-        Assert.StartsWith("--import ", delivered.NodeOptionsSuffix, StringComparison.Ordinal);
+        Assert.Equal("--import", delivered.Arguments![0]);
         Assert.Contains(
             OpenClawRuntimeEnvironment.NativeRedirectFileName,
-            delivered.NodeOptionsSuffix,
+            delivered.Arguments[1],
             StringComparison.Ordinal);
+        Assert.EndsWith("openclaw.mjs", delivered.Arguments[2], StringComparison.Ordinal);
+        Assert.Equal(["gateway", "run"], delivered.Arguments.Skip(3));
+        Assert.Null(delivered.NodeOptionsSuffix);
         Assert.False(delivered.Environment!.ContainsKey("NODE_OPTIONS"));
     }
 
@@ -126,6 +127,7 @@ public sealed class SessionGatewayClientTests : IDisposable
 
         Assert.Null(delivered.NativeRootPath);
         Assert.Null(delivered.NodeOptionsSuffix);
+        Assert.EndsWith("openclaw.mjs", delivered.Arguments![0], StringComparison.Ordinal);
     }
 
     private async Task<(SessionLaunchRequest Delivered, string AgentNodePath, SessionRuntime Session)>

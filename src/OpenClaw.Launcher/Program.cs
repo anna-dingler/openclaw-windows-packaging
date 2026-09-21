@@ -324,7 +324,7 @@ internal static class Program
                     applicationDirectory,
                     interactive,
                     environmentReader),
-                NodeOptionsSuffix = BuildNativeRedirectNodeOption(runtime),
+                NodeArgumentsPrefix = BuildNativeRedirectNodeArguments(runtime),
                 NativeRootPath = runtime.GetAgentNativeRoot()
             },
             CancellationToken.None).ConfigureAwait(false);
@@ -396,8 +396,7 @@ internal static class Program
     /// addons the same way. The agent shell carries equivalent values through
     /// its command shim because agent tooling may replace process environment
     /// values before invoking <c>openclaw</c>. The redirect's preload is not
-    /// here: it belongs in the agent's <c>NODE_OPTIONS</c>, and this process's
-    /// own <c>NODE_OPTIONS</c> is the host's, not the agent's.
+    /// here: it belongs on the agent Node.js argument vector.
     /// </remarks>
     private static IReadOnlyDictionary<string, string> BuildRuntimeEnvironment(
         Session.SessionRuntime runtime,
@@ -420,12 +419,13 @@ internal static class Program
     }
 
     /// <summary>
-    /// The Node.js option that loads the redirect, or <see langword="null"/>
+    /// The Node.js arguments that load the redirect, or <see langword="null"/>
     /// when setup staged nothing to redirect to.
     /// </summary>
-    private static string? BuildNativeRedirectNodeOption(Session.SessionRuntime runtime) =>
+    private static IReadOnlyList<string>? BuildNativeRedirectNodeArguments(
+        Session.SessionRuntime runtime) =>
         runtime.GetAgentNativeRoot() is { Length: > 0 }
-            ? OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+            ? OpenClawRuntimeEnvironment.BuildNativeRedirectNodeArguments(
                 ResolveNativeRedirectPreloadPath())
             : null;
 

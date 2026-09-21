@@ -18,6 +18,9 @@ internal sealed record SessionExecutionRequest(
     /// </summary>
     public IReadOnlyDictionary<string, string>? AdditionalEnvironment { get; init; }
 
+    /// <summary>Node.js runtime arguments placed before the application entrypoint.</summary>
+    public IReadOnlyList<string>? NodeArgumentsPrefix { get; init; }
+
     /// <summary>
     /// Node.js options the agent appends to its own <c>NODE_OPTIONS</c>.
     /// </summary>
@@ -539,7 +542,13 @@ internal sealed class SessionExecutor
         SessionExecutionRequest request)
     {
         string entryPoint = Path.Combine(request.ApplicationDirectory, "openclaw.mjs");
-        var arguments = new List<string>(request.Arguments.Count + 1) { entryPoint };
+        var arguments = new List<string>(
+            (request.NodeArgumentsPrefix?.Count ?? 0) + request.Arguments.Count + 1);
+        if (request.NodeArgumentsPrefix is not null)
+        {
+            arguments.AddRange(request.NodeArgumentsPrefix);
+        }
+        arguments.Add(entryPoint);
         arguments.AddRange(request.Arguments);
         return arguments;
     }

@@ -406,6 +406,42 @@ public sealed class SessionExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task NodeArgumentsPrefixPrecedesTheApplicationEntryPoint()
+    {
+        SessionLaunchRequest? delivered = null;
+        RespondAsHelper(request =>
+        {
+            delivered = request;
+            return new SessionLaunchResult
+            {
+                RequestId = request.RequestId,
+                Launched = true,
+                ExitCode = 0,
+            };
+        });
+
+        SessionExecutionRequest request = Request("doctor") with
+        {
+            NodeArgumentsPrefix =
+            [
+                "--import",
+                "file:///C:/Package/node/native-redirect.mjs"
+            ]
+        };
+
+        await Create().ExecuteAsync(Record(), request, CancellationToken.None);
+
+        Assert.Equal(
+            [
+                "--import",
+                "file:///C:/Package/node/native-redirect.mjs",
+                @"C:\Package\app\openclaw.mjs",
+                "doctor"
+            ],
+            delivered!.Arguments);
+    }
+
+    [Fact]
     public async Task WorkingDirectoryIsCarriedExplicitly()
     {
         // Execution does not inherit the caller's directory; it defaults to
