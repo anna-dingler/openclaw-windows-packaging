@@ -665,12 +665,16 @@ internal static class Program
                             new Session.SessionCommandRequest(
                                 runtime.RequireStagedHelper(record),
                                 nodePath,
-                                [Path.Combine(applicationDirectory, "openclaw.mjs"), "dashboard", "--json"],
+                                [
+                                    .. BuildNativeRedirectNodeArguments(runtime) ?? [],
+                                    Path.Combine(applicationDirectory, "openclaw.mjs"),
+                                    "dashboard",
+                                    "--json"
+                                ],
                                 record.WorkspacePath!)
                             {
                                 PathPrefix = Path.GetDirectoryName(nodePath),
                                 AdditionalEnvironment = dashboardEnvironment,
-                                NodeOptionsSuffix = BuildNativeRedirectNodeOption(runtime),
                                 NativeRootPath = runtime.GetAgentNativeRoot()
                             },
                             "Resolving the Control UI handoff in the isolated session.",

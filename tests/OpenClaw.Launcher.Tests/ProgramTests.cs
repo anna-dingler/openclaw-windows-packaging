@@ -2028,12 +2028,15 @@ public sealed class ProgramTests : IDisposable
         Assert.Equal(expectedExitCode, exitCode);
         Assert.NotNull(dashboardRequest);
         Assert.Equal(
-            [Path.Combine(_testDirectory, "app", "openclaw.mjs"), "dashboard", "--json"],
+            [
+                "--import",
+                new Uri(Program.ResolveNativeRedirectPreloadPath()).AbsoluteUri,
+                Path.Combine(_testDirectory, "app", "openclaw.mjs"),
+                "dashboard",
+                "--json"
+            ],
             dashboardRequest.Arguments);
-        Assert.Contains(
-            OpenClawRuntimeEnvironment.NativeRedirectFileName,
-            dashboardRequest.NodeOptionsSuffix,
-            StringComparison.Ordinal);
+        Assert.Null(dashboardRequest.NodeOptionsSuffix);
         Assert.Equal(nativeRoot, dashboardRequest.NativeRootPath);
         foreach ((string name, string value) in OpenClawRuntimeEnvironment.BuildNativeRedirect(
             Path.Combine(_testDirectory, "app"),
