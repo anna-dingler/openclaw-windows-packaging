@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using OpenClaw.Launcher.Session;
 using OpenClaw.SessionHost;
 using OpenClaw.SessionProtocol;
 
@@ -40,5 +42,98 @@ public sealed class SessionToolInstallerTests : IDisposable
         Assert.Equal(
             Path.Combine(workspace, ".openclaw-tools", "openclaw.cmd"),
             result.ShimPath);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--max-old-space-size=4096")]
+    public async Task CommandShimRestoresNativeRedirectForAgentInvocations(
+        string? existingNodeOptions)
+    {
+        string workspace = Path.Combine(_root, "workspace");
+        Directory.CreateDirectory(workspace);
+        string requestPath = Path.Combine(workspace, "tools.json");
+        File.WriteAllText(
+            requestPath,
+            SessionRuntimeProtocol.SerializeToolInstallRequest(new SessionToolInstallRequest
+            {
+                RequestId = "tools1",
+                WorkspacePath = workspace
+            }));
+        Assert.Equal(
+            0,
+            SessionToolInstaller.Run(
+                requestPath,
+                File.ReadAllText,
+                File.WriteAllText));
+        SessionToolInstallResult result = SessionRuntimeProtocol.ReadToolInstallResult(
+            File.ReadAllText(SessionLaunchProtocol.ResultPathFor(requestPath)));
+
+        string outputPath = Path.Combine(workspace, "environment.txt");
+        string fakeNodePath = Path.Combine(workspace, "node.cmd");
+        File.WriteAllText(
+            fakeNodePath,
+            "@echo off\r\n" +
+            "> \"%OPENCLAW_TEST_OUTPUT%\" echo %OPENCLAW_NATIVE_APP_ROOT%\r\n" +
+            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %OPENCLAW_NATIVE_STAGED_ROOT%\r\n" +
+            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %NODE_OPTIONS%\r\n");
+
+        string applicationDirectory = @"C:\Program Files\WindowsApps\OpenClaw\app";
+        string nativeRoot = @"C:\Users\agent\AppData\Local\openclaw\native\abc";
+        string nodeOptionsSuffix =
+            "--import file:///C:/Program%20Files/WindowsApps/OpenClaw/node/native-redirect.mjs";
+        IReadOnlyDictionary<string, string> shimEnvironment =
+            AgentToolShim.BuildEnvironment(
+                fakeNodePath,
+                applicationDirectory,
+                nativeRoot,
+                nodeOptionsSuffix);
+        string commandInterpreter = Environment.GetEnvironmentVariable("ComSpec")
+            ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "cmd.exe");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = commandInterpreter,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = workspace
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/s");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add($"\"{result.ShimPath}\" doctor");
+        startInfo.Environment.Remove(OpenClawRuntimeEnvironment.NativeApplicationRootVariable);
+        startInfo.Environment.Remove(OpenClawRuntimeEnvironment.NativeStagedRootVariable);
+        if (existingNodeOptions is null)
+        {
+            startInfo.Environment.Remove(OpenClawRuntimeEnvironment.NodeOptionsVariable);
+        }
+        else
+        {
+            startInfo.Environment[OpenClawRuntimeEnvironment.NodeOptionsVariable] =
+                existingNodeOptions;
+        }
+        startInfo.Environment["OPENCLAW_TEST_OUTPUT"] = outputPath;
+        foreach ((string name, string value) in shimEnvironment)
+        {
+            startInfo.Environment[name] = value;
+        }
+
+        using Process process = new() { StartInfo = startInfo };
+        Assert.True(process.Start());
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await process.WaitForExitAsync(timeout.Token);
+
+        Assert.Equal(0, process.ExitCode);
+        Assert.Equal(
+            [
+                applicationDirectory,
+                nativeRoot,
+                existingNodeOptions is null
+                    ? nodeOptionsSuffix
+                    : $"{existingNodeOptions} {nodeOptionsSuffix}"
+            ],
+            File.ReadAllLines(outputPath));
     }
 }

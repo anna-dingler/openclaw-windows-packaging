@@ -13,6 +13,17 @@ internal static class SessionToolInstaller
         "setlocal\r\n" +
         "if not defined OPENCLAW_SHIM_NODE goto :missing\r\n" +
         "if not defined OPENCLAW_SHIM_ENTRY goto :missing\r\n" +
+        "if not defined OPENCLAW_SHIM_NATIVE_STAGED_ROOT goto :launch\r\n" +
+        "if not defined OPENCLAW_SHIM_NATIVE_APP_ROOT goto :missing\r\n" +
+        "if not defined OPENCLAW_SHIM_NODE_OPTIONS_SUFFIX goto :missing\r\n" +
+        "set \"OPENCLAW_NATIVE_APP_ROOT=%OPENCLAW_SHIM_NATIVE_APP_ROOT%\"\r\n" +
+        "set \"OPENCLAW_NATIVE_STAGED_ROOT=%OPENCLAW_SHIM_NATIVE_STAGED_ROOT%\"\r\n" +
+        "if defined NODE_OPTIONS goto :append-node-options\r\n" +
+        "set \"NODE_OPTIONS=%OPENCLAW_SHIM_NODE_OPTIONS_SUFFIX%\"\r\n" +
+        "goto :launch\r\n" +
+        ":append-node-options\r\n" +
+        "set \"NODE_OPTIONS=%NODE_OPTIONS% %OPENCLAW_SHIM_NODE_OPTIONS_SUFFIX%\"\r\n" +
+        ":launch\r\n" +
         "\"%OPENCLAW_SHIM_NODE%\" \"%OPENCLAW_SHIM_ENTRY%\" %*\r\n" +
         "exit /b %ERRORLEVEL%\r\n" +
         ":missing\r\n" +

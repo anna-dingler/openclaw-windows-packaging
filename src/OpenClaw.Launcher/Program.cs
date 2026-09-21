@@ -392,10 +392,12 @@ internal static class Program
     /// account owns.
     /// </summary>
     /// <remarks>
-    /// Built in one place so every launch path - foreground, gateway, and the
-    /// agent's own shell - resolves native addons the same way. The redirect's
-    /// preload is not here: it belongs in the agent's <c>NODE_OPTIONS</c>, and
-    /// this process's own <c>NODE_OPTIONS</c> is the host's, not the agent's.
+    /// Built in one place so foreground and gateway launch paths resolve native
+    /// addons the same way. The agent shell carries equivalent values through
+    /// its command shim because agent tooling may replace process environment
+    /// values before invoking <c>openclaw</c>. The redirect's preload is not
+    /// here: it belongs in the agent's <c>NODE_OPTIONS</c>, and this process's
+    /// own <c>NODE_OPTIONS</c> is the host's, not the agent's.
     /// </remarks>
     private static IReadOnlyDictionary<string, string> BuildRuntimeEnvironment(
         Session.SessionRuntime runtime,
@@ -1125,6 +1127,11 @@ internal static class Program
                     "The installed agent command shim has no parent directory."),
             installedTools.ShimPath!);
         Session.AgentShell shell = Session.AgentShellResolver.Resolve(File.Exists);
+        string? nativeRootPath = runtime.GetAgentNativeRoot();
+        string? nativeRedirectOption = nativeRootPath is { Length: > 0 }
+            ? OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
+                ResolveNativeRedirectPreloadPath())
+            : null;
 
         return await runtime.Executor.ExecuteCommandAsync(
             record,
@@ -1139,14 +1146,15 @@ internal static class Program
                 record.WorkspacePath!)
             {
                 AdditionalEnvironment = Session.SessionExecutor.MergeEnvironment(
-                    BuildRuntimeEnvironment(
-                        runtime,
-                        applicationDirectory,
+                    OpenClawRuntimeEnvironment.Build(
                         WindowsHostConsole.Instance.IsInteractive,
                         Environment.GetEnvironmentVariable),
-                    Session.AgentToolShim.BuildEnvironment(agentNodePath, applicationDirectory)),
-                NodeOptionsSuffix = BuildNativeRedirectNodeOption(runtime),
-                NativeRootPath = runtime.GetAgentNativeRoot()
+                    Session.AgentToolShim.BuildEnvironment(
+                        agentNodePath,
+                        applicationDirectory,
+                        nativeRootPath,
+                        nativeRedirectOption)),
+                NativeRootPath = nativeRootPath
             },
             $"Opening {shell.DisplayName} in the isolated session.",
             shell.DisplayName,
