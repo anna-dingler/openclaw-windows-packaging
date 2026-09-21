@@ -47,6 +47,7 @@ public sealed class SessionToolInstallerTests : IDisposable
     [Theory]
     [InlineData(null)]
     [InlineData("--max-old-space-size=4096")]
+    [InlineData("--require \"C:\\agent data\\a&b\\preload.cjs\"")]
     public async Task CommandShimRestoresNativeRedirectForAgentInvocations(
         string? existingNodeOptions)
     {
@@ -74,20 +75,26 @@ public sealed class SessionToolInstallerTests : IDisposable
         File.WriteAllText(
             fakeNodePath,
             "@echo off\r\n" +
+            "setlocal EnableDelayedExpansion\r\n" +
             "> \"%OPENCLAW_TEST_OUTPUT%\" echo %OPENCLAW_NATIVE_APP_ROOT%\r\n" +
             ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %OPENCLAW_NATIVE_STAGED_ROOT%\r\n" +
-            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %NODE_OPTIONS%\r\n");
+            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo(!NODE_OPTIONS!\r\n" +
+            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %~1\r\n" +
+            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %~2\r\n" +
+            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %~3\r\n" +
+            ">> \"%OPENCLAW_TEST_OUTPUT%\" echo %~4\r\n" +
+            "exit /b 0\r\n");
 
         string applicationDirectory = @"C:\Program Files\WindowsApps\OpenClaw\app";
         string nativeRoot = @"C:\Users\agent\AppData\Local\openclaw\native\abc";
-        string nodeOptionsSuffix =
-            "--import file:///C:/Program%20Files/WindowsApps/OpenClaw/node/native-redirect.mjs";
+        string nativePreloadUrl =
+            "file:///C:/Program%20Files/WindowsApps/OpenClaw/node/native-redirect.mjs";
         IReadOnlyDictionary<string, string> shimEnvironment =
             AgentToolShim.BuildEnvironment(
                 fakeNodePath,
                 applicationDirectory,
                 nativeRoot,
-                nodeOptionsSuffix);
+                nativePreloadUrl);
         string commandInterpreter = Environment.GetEnvironmentVariable("ComSpec")
             ?? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -95,14 +102,11 @@ public sealed class SessionToolInstallerTests : IDisposable
         var startInfo = new ProcessStartInfo
         {
             FileName = commandInterpreter,
+            Arguments = $"/d /c call \"{result.ShimPath}\" doctor",
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = workspace
         };
-        startInfo.ArgumentList.Add("/d");
-        startInfo.ArgumentList.Add("/s");
-        startInfo.ArgumentList.Add("/c");
-        startInfo.ArgumentList.Add($"\"{result.ShimPath}\" doctor");
         startInfo.Environment.Remove(OpenClawRuntimeEnvironment.NativeApplicationRootVariable);
         startInfo.Environment.Remove(OpenClawRuntimeEnvironment.NativeStagedRootVariable);
         if (existingNodeOptions is null)
@@ -130,9 +134,11 @@ public sealed class SessionToolInstallerTests : IDisposable
             [
                 applicationDirectory,
                 nativeRoot,
-                existingNodeOptions is null
-                    ? nodeOptionsSuffix
-                    : $"{existingNodeOptions} {nodeOptionsSuffix}"
+                existingNodeOptions ?? string.Empty,
+                "--import",
+                nativePreloadUrl,
+                Path.Combine(applicationDirectory, "openclaw.mjs"),
+                "doctor"
             ],
             File.ReadAllLines(outputPath));
     }

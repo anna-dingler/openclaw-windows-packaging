@@ -12,14 +12,14 @@ internal static class AgentToolShim
         "OPENCLAW_SHIM_NATIVE_APP_ROOT";
     internal const string NativeStagedRootVariable =
         "OPENCLAW_SHIM_NATIVE_STAGED_ROOT";
-    internal const string NodeOptionsSuffixVariable =
-        "OPENCLAW_SHIM_NODE_OPTIONS_SUFFIX";
+    internal const string NativePreloadUrlVariable =
+        "OPENCLAW_SHIM_NATIVE_PRELOAD_URL";
 
     public static IReadOnlyDictionary<string, string> BuildEnvironment(
         string nodePath,
         string applicationDirectory,
         string? nativeRootPath = null,
-        string? nodeOptionsSuffix = null)
+        string? nativePreloadUrl = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
@@ -35,16 +35,16 @@ internal static class AgentToolShim
             return environment;
         }
 
-        if (string.IsNullOrWhiteSpace(nodeOptionsSuffix))
+        if (string.IsNullOrWhiteSpace(nativePreloadUrl))
         {
             throw new ArgumentException(
                 "A native redirect preload is required with a staged native root.",
-                nameof(nodeOptionsSuffix));
+                nameof(nativePreloadUrl));
         }
 
         environment[NativeApplicationRootVariable] = applicationDirectory;
         environment[NativeStagedRootVariable] = nativeRootPath;
-        environment[NodeOptionsSuffixVariable] = nodeOptionsSuffix;
+        environment[NativePreloadUrlVariable] = nativePreloadUrl;
         return environment;
     }
 }

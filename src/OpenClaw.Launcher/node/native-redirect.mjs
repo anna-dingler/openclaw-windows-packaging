@@ -22,6 +22,14 @@ const appRoot = process.env.OPENCLAW_NATIVE_APP_ROOT;
 const stagedRoot = process.env.OPENCLAW_NATIVE_STAGED_ROOT;
 
 if (appRoot && stagedRoot) {
+  const preloadOption = `--import ${import.meta.url}`;
+  const inheritedNodeOptions = process.env.NODE_OPTIONS;
+  if (!inheritedNodeOptions?.includes(preloadOption)) {
+    process.env.NODE_OPTIONS = inheritedNodeOptions?.trim()
+      ? `${inheritedNodeOptions} ${preloadOption}`
+      : preloadOption;
+  }
+
   const from = join(appRoot, "node_modules") + sep;
   const to = join(stagedRoot, "node_modules") + sep;
 

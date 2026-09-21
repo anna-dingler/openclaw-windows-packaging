@@ -473,7 +473,7 @@ public sealed class ProgramTests : IDisposable
             launched.Environment[AgentToolShim.NativeStagedRootVariable]);
         Assert.Contains(
             OpenClawRuntimeEnvironment.NativeRedirectFileName,
-            launched.Environment[AgentToolShim.NodeOptionsSuffixVariable],
+            launched.Environment[AgentToolShim.NativePreloadUrlVariable],
             StringComparison.Ordinal);
     }
 

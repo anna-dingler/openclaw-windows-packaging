@@ -1128,9 +1128,8 @@ internal static class Program
             installedTools.ShimPath!);
         Session.AgentShell shell = Session.AgentShellResolver.Resolve(File.Exists);
         string? nativeRootPath = runtime.GetAgentNativeRoot();
-        string? nativeRedirectOption = nativeRootPath is { Length: > 0 }
-            ? OpenClawRuntimeEnvironment.BuildNativeRedirectNodeOption(
-                ResolveNativeRedirectPreloadPath())
+        string? nativePreloadUrl = nativeRootPath is { Length: > 0 }
+            ? new Uri(ResolveNativeRedirectPreloadPath()).AbsoluteUri
             : null;
 
         return await runtime.Executor.ExecuteCommandAsync(
@@ -1153,7 +1152,7 @@ internal static class Program
                         agentNodePath,
                         applicationDirectory,
                         nativeRootPath,
-                        nativeRedirectOption)),
+                        nativePreloadUrl)),
                 NativeRootPath = nativeRootPath
             },
             $"Opening {shell.DisplayName} in the isolated session.",
