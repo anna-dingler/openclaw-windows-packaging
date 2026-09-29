@@ -686,25 +686,32 @@ Direct GitHub distribution and Store submission intentionally use distinct
 identities because the current Azure certificate matches the legacy sideload
 publisher rather than Partner Center's reserved publisher.
 
-The signed `v0.0.0.0` and `v0.0.0.1` proof releases and the latest production
-release retain the former `OpenClaw.Gateway` identity and remain immutable
-transition baselines. Partner Center requires the reserved
+The signed `v0.0.0.0` and `v0.0.0.1` proof releases and the latest signed
+sideload release retain the `OpenClaw.Gateway` identity and remain immutable
+upgrade baselines. Partner Center requires the reserved
 `OpenClawFoundation.OpenClawGateway` identity, so Windows cannot update those
 packages in place or retain their packaged LocalState. Pull requests that
 change release policy download the hash-pinned standalone x64 and recommended
 `.msixbundle` assets, install each one on a clean GitHub-hosted Windows runner,
-verify the legacy identity, remove it, install the candidate through the same
-delivery format, and prove that Windows registered the reserved package family
-with isolated LocalState. Changes to source-selection scripts also trigger this
-check against the selected release. The gate additionally proves fresh
-installation of both candidate formats. It refuses to run when a Gateway package is
+verify the legacy identity, remove it, install the Store candidate through the
+same delivery format, and prove that Windows registered the reserved package
+family with isolated LocalState. The same gate updates each baseline in place
+to the new sideload candidate and proves that standalone and bundle delivery
+retain the exact LocalState marker. When the previous Store revision reached
+users, the gate also installs that exact published Store version by Store ID
+and proves that both Store candidate formats update it in place while retaining
+the marker. Changes to source-selection scripts also trigger this check against
+the selected release. The gate additionally proves fresh installation of both
+Store candidate formats. It refuses to run when a Gateway package is
 already registered and removes only packages installed by that test
 invocation. It temporarily trusts the ephemeral test-signing certificate in
 the local-machine Trusted People store, as required by Windows deployment, and
 removes that certificate in `finally`. The resulting JSON evidence is retained
 as a workflow artifact for 90 days. This identity change is the explicitly
-approved breaking reset; future releases under the reserved identity must
-return to in-place upgrade and LocalState-retention proof.
+approved breaking reset. Until Partner Center distributes a Store-signed
+package, later policy revisions repeat the reset and fresh-install proof. After
+the reserved identity reaches users, subsequent releases install the authentic
+Store baseline and prove in-place upgrade with LocalState retention.
 
 An `.msixbundle` is a single installable container for the x64 and ARM64 MSIX
 packages; Windows selects the package appropriate for the device. An
