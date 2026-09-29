@@ -66,6 +66,9 @@ if (
 ) {
     throw "The $IdentityChannel package identity is incomplete in release policy."
 }
+$msbuildPublisher = & (
+    Join-Path $PSScriptRoot 'ConvertTo-MSBuildPropertyValue.ps1'
+) -Value $publisher
 
 function Invoke-CheckedCommand {
     param(
@@ -459,7 +462,7 @@ try {
                 "-p:FileVersion=$PackageVersion" `
                 "-p:PackageIdentityVersion=$PackageVersion" `
                 "-p:PackageIdentityName=$packageIdentityName" `
-                "-p:PackageIdentityPublisher=$publisher" `
+                "-p:PackageIdentityPublisher=$msbuildPublisher" `
                 "-p:ClawCtlPackageVersion=$PackageVersion" `
                 "-p:ClawCtlPackageCommit=$($SourceCommit.ToLowerInvariant())" `
                 "-p:ClawCtlPayloadVersion=$([string]$payloadInfo.packageVersion)" `
