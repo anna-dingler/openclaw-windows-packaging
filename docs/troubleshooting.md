@@ -27,6 +27,47 @@ clawctl setup
 
 For another stated prerequisite, correct that prerequisite and rerun setup.
 
+## Companion reports that the agent Gateway config is absent
+
+**Check.** `clawctl gateway-service status --json` may report
+`gateway.readiness.state: "absent"` even though `clawctl setup` succeeded.
+The latter installs the session and Node.js runtime; it does not choose
+Gateway authentication or port settings. A host-side `openclaw.json` written
+under Companion's account is not the isolated agent's configuration.
+
+**Fix.** Retry **Install a local native gateway** in Companion. It calls the
+package-qualified `clawctl companion prepare --port <port> --json` to apply a
+local configuration inside the agent session, preserving an existing agent
+Gateway port and token. If Companion says the installed MSIX lacks the
+versioned integration contract, update the Gateway MSIX rather than copying
+a configuration file between profiles. If preparation reports an incompatible
+mode, bind address, authentication method, or agent profile override,
+inspect that configuration through `clawctl pwsh` and resolve the reported
+conflict deliberately. Do not run `clawctl setup --fresh` as a first repair:
+it removes the owned session.
+
+Before pairing or publishing, Companion also runs
+`clawctl companion prepare --check --json`. This is read-only and fails if the
+agent's port or token no longer matches the setup record; retry Companion setup
+to recover rather than copying configuration into the human user's profile.
+The JSON response contains a token and must be kept private.
+
+## Companion cannot verify the isolated Gateway listener
+
+**Check.** Run `clawctl gateway-service status --json` through the installed
+package. A healthy Gateway can still start and report status when the Windows
+process-sequence API is unavailable, but Companion requires the stricter
+`gateway.ownership.listeners` evidence, including a process ID and
+`sequenceNumber`, before it sends credentials. An unrelated listener on the
+selected port is not sufficient.
+
+**Fix.** If the response says process-sequence inspection is unavailable,
+update Windows to a build that supports `SystemBasicProcessInformation`
+(Windows 11 build 26100.4770 or later), then retry Companion. Re-running
+`clawctl setup` cannot add this operating-system API. If the report instead
+identifies a listener conflict, free the selected port before retrying. Do not
+disable ownership checks or copy a host-side config into the agent profile.
+
 ## Automatic setup failed during `openclaw`
 
 **Check.** Preserve the complete automatic-setup error from standard error. It

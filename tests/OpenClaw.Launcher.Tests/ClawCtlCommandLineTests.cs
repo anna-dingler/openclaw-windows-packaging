@@ -105,7 +105,8 @@ public sealed class ClawCtlCommandLineTests
                 ClawCtlCommandLine.OpenCommandName,
                 ClawCtlCommandLine.CompletionCommandName,
                 "pwsh",
-                "gateway-service"
+                "gateway-service",
+                "companion"
             ],
             root.Subcommands.Select(command => command.Name));
     }
@@ -166,6 +167,37 @@ public sealed class ClawCtlCommandLineTests
         Assert.Equal(1, opens);
         Assert.True(outputOptions.Json);
         Assert.True(outputOptions.NoColor);
+    }
+
+    [Fact]
+    public async Task CompanionConfigurationCheckDoesNotRequireAPort()
+    {
+        int receivedPort = -1;
+        bool receivedCheckOnly = false;
+        RootCommand root = ClawCtlCommandLine.Create(new ClawCtlHandlers
+        {
+            Setup = (_, _) => Task.FromResult(0),
+            Status = _ => Task.FromResult(0),
+            CollectLogs = (_, _) => Task.FromResult(0),
+            Teardown = (_, _) => Task.FromResult(0),
+            PowerShell = (_, _) => Task.FromResult(0),
+            GatewayStart = (_, _) => Task.FromResult(0),
+            GatewayStatus = _ => Task.FromResult(0),
+            GatewayStop = _ => Task.FromResult(0),
+            GatewayRestart = _ => Task.FromResult(0),
+            CompanionPrepare = (port, checkOnly, _) =>
+            {
+                receivedPort = port;
+                receivedCheckOnly = checkOnly;
+                return Task.FromResult(0);
+            }
+        });
+
+        int exitCode = await root.Parse("companion prepare --check --json").InvokeAsync();
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(0, receivedPort);
+        Assert.True(receivedCheckOnly);
     }
 
     [Fact]

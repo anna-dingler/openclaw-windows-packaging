@@ -172,6 +172,78 @@ public sealed class GuestProcessObserverTests
 
 public sealed class SessionInspectorTests
 {
+    public static IEnumerable<object[]> UnavailableSequenceCaptures()
+    {
+        yield return
+        [
+            (Func<IReadOnlyDictionary<int, ulong>>)(
+                () => throw new NotSupportedException("Sequence capture is unsupported."))
+        ];
+        yield return
+        [
+            (Func<IReadOnlyDictionary<int, ulong>>)(
+                () => throw new InvalidOperationException("Sequence capture failed."))
+        ];
+        yield return
+        [
+            (Func<IReadOnlyDictionary<int, ulong>>)(
+                () => throw new InvalidDataException("Sequence capture was corrupt."))
+        ];
+    }
+
+    public static IEnumerable<object[]> IncompleteSequenceCaptures()
+    {
+        yield return
+        [
+            (Func<IReadOnlyDictionary<int, ulong>>)(
+                () => new Dictionary<int, ulong>())
+        ];
+        yield return
+        [
+            (Func<IReadOnlyDictionary<int, ulong>>)(
+                () => new Dictionary<int, ulong> { [Environment.ProcessId] = 0 })
+        ];
+    }
+
+    [Theory]
+    [MemberData(nameof(UnavailableSequenceCaptures))]
+    [MemberData(nameof(IncompleteSequenceCaptures))]
+    public void HealthyGatewayInspectionRemainsHealthyWithoutSequenceOwnershipProof(
+        Func<IReadOnlyDictionary<int, ulong>> captureSequences)
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            using Process current = Process.GetCurrentProcess();
+            SessionInspectResult result = SessionInspector.Inspect(
+                new SessionInspectRequest
+                {
+                    RequestId = "sequence-unavailable",
+                    ProcessId = current.Id,
+                    ProcessStartTimeUtc = current.StartTime.ToUniversalTime(),
+                    HelperPath = current.MainModule!.FileName,
+                    Port = port
+                },
+                _ => throw new FileNotFoundException(),
+                captureSequences);
+
+            Assert.True(result.ProcessFound);
+            Assert.True(result.StartTimeMatches);
+            Assert.True(result.PortListening);
+            Assert.Contains(port, result.ListeningPorts!);
+            Assert.True(result.ListenerOwned);
+            Assert.True(result.IsOwnedAndHealthy);
+            Assert.Null(result.Error);
+            Assert.Null(result.OwnedListeners);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     [Fact]
     public void AnUnconfirmedLaunchIsUnknownRatherThanSuccessfulAbsence()
     {

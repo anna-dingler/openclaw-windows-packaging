@@ -17,6 +17,8 @@ internal sealed record ClawCtlHandlers
     public required Func<CancellationToken, Task<int>> GatewayStatus { get; init; }
     public required Func<CancellationToken, Task<int>> GatewayStop { get; init; }
     public required Func<CancellationToken, Task<int>> GatewayRestart { get; init; }
+    public Func<int, bool, CancellationToken, Task<int>> CompanionPrepare { get; init; } =
+        (_, _, _) => Task.FromResult(1);
 }
 
 internal sealed record SetupOptions(bool Fresh, bool Force);
@@ -342,6 +344,41 @@ internal static class ClawCtlCommandLine
         gateway.Subcommands.Add(gatewayStop);
         gateway.Subcommands.Add(gatewayRestart);
 
+        Command companion = new(
+            "companion",
+            "Prepare the isolated Gateway for the Windows Companion app.");
+        Command companionPrepare = new(
+            "prepare",
+            "Preserve the agent's existing config and set up local token authentication.");
+        Option<int> companionPort = new("--port")
+        {
+            Description = "Preferred loopback port. An existing agent-configured port takes precedence."
+        };
+        Option<bool> companionCheck = new("--check")
+        {
+            Description = "Check the recorded agent configuration without modifying it."
+        };
+        Option<bool> companionJson = CreateJsonOption();
+        companionPrepare.Options.Add(companionPort);
+        companionPrepare.Options.Add(companionCheck);
+        companionPrepare.Options.Add(companionJson);
+        companionPrepare.Validators.Add(result =>
+        {
+            if (!result.GetValue(companionCheck) &&
+                result.GetValue(companionPort) is < 1 or > 65535)
+            {
+                result.AddError("'--port' requires a TCP port from 1 through 65535.");
+            }
+        });
+        companionPrepare.SetAction((parsed, token) =>
+        {
+            outputOptions.Json = IsJsonRequested(parsed, rootJson, companionJson);
+            outputOptions.NoColor = parsed.GetValue(noColor);
+            return handlers.CompanionPrepare(
+                parsed.GetValue(companionPort), parsed.GetValue(companionCheck), token);
+        });
+        companion.Subcommands.Add(companionPrepare);
+
         RootCommand root = new(RootDescription)
         {
             setup,
@@ -351,7 +388,8 @@ internal static class ClawCtlCommandLine
             open,
             completion,
             powerShell,
-            gateway
+            gateway,
+            companion
         };
         root.Options.Add(rootJson);
         root.Options.Add(noColor);

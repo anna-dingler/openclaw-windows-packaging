@@ -204,6 +204,51 @@ under one lifecycle lock. A missing or already-exited gateway makes the stop a
 no-op and the start continues. If the gateway cannot be confirmed stopped, the
 operation retains its ownership record and does not launch a replacement.
 
+## Companion uses the package's isolated session
+
+The Windows Companion app selects the current-user Gateway MSIX by its exact
+package registration and qualified `clawctl.exe` alias. It probes
+`clawctl status --json` for the versioned `isolated-session` integration
+contract. After setup, `clawctl companion prepare --port <port> --json`
+instructs [`SessionCompanionConfig`](../src/OpenClaw.SessionHost/SessionCompanionConfig.cs)
+to inspect the agent's default `openclaw.json` inside the recorded session.
+The agent invokes the packaged upstream `openclaw config patch` to write
+configuration, preserving existing provider settings, Gateway port, and token.
+Before pairing and publishing Companion's record, the package-qualified
+`clawctl companion prepare --check --json` checks that the agent's effective
+port and token still match the values used by Companion without modifying the
+config. The response contains a credential and must be kept private.
+The host does not write a second profile, inherit the invoking user's profile
+overrides, or select device-installed Node.js. Incompatible configuration
+requires explicit recovery rather than overwriting credentials.
+
+[`GatewayController`](../src/OpenClaw.Launcher/Gateway/GatewayController.cs)
+starts, stops, and inspects the Gateway on Companion's behalf.
+When listener attribution is available, `clawctl gateway-service status --json`
+reports the recorded sandbox and agent SID alongside guest-observed listener
+process IDs, creation times, sequence numbers, and ports.
+Those fields are evidence from the trusted package-qualified invocation, not
+a bearer credential or sufficient proof when copied out of context. Companion
+compares them with two fresh host-side listener and OS process-sequence
+snapshots before any credential handoff. The agent's process DACL denies
+cross-account process handles to Companion, so a host process-start-time or
+token-SID query cannot be the ownership check. Windows 11 builds with
+`SystemBasicProcessInformation` expose an OS-owned per-process sequence
+without opening that handle. Gateway health and lifecycle still use the
+isolated process-tree and observed listener checks when process sequences are
+unavailable; in that case the package omits `gateway.ownership` and Companion
+fails closed before sending credentials. Unknown, incomplete, or replaced
+listeners fail closed instead of accepting a reused PID.
+
+Pairing uses package-qualified `openclaw devices list --json` and
+`openclaw devices approve <request-id> --json` in the isolated session.
+`openclaw` runs transparently as the agent user and reads that account's
+configuration; Companion does not write a host-profile config or pass a token
+through command-line arguments or environment overrides. Before each command,
+Companion verifies the live listener and checks that the agent's port and token
+still match its setup record. It matches the pending request to its own device
+ID and public key, then approves only that exact request.
+
 ## Diagnostics and build inputs have different trust roles
 
 [`HostDiagnosticLog`](../src/OpenClaw.Launcher/HostDiagnosticLog.cs) writes

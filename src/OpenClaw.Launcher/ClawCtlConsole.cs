@@ -49,6 +49,10 @@ internal static class ClawCtlConsole
         string? literalLine = null;
         switch (result)
         {
+            case CompanionPrepareResult companion:
+                literalLine = companion.Error ??
+                    $"Companion Gateway configuration is ready on port {companion.Port}.";
+                break;
             case SetupCommandResult setup:
                 WriteSetup(view, setup);
                 break;

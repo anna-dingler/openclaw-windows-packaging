@@ -39,7 +39,10 @@ internal sealed record GatewayStatusReport(
     GatewayState State,
     GatewayRecord? Record,
     string Message,
-    string? Detail = null);
+    string? Detail = null,
+    string? SandboxId = null,
+    string? AgentUserSid = null,
+    IReadOnlyList<SessionOwnedListener>? OwnedListeners = null);
 
 internal sealed record GatewayStartResult(
     GatewayState State,
@@ -188,6 +191,15 @@ internal sealed class GatewayController
         }
 
         GatewayStatusReport report = Describe(state.Record, inspection);
+        if (report.State == GatewayState.Running)
+        {
+            report = report with
+            {
+                SandboxId = session.Record.SandboxId,
+                AgentUserSid = session.Record.AgentUserSid,
+                OwnedListeners = inspection.OwnedListeners
+            };
+        }
         _log(string.Create(
             CultureInfo.InvariantCulture,
             $"Gateway inspection finished in {ElapsedMilliseconds()} ms: {report.State}."));

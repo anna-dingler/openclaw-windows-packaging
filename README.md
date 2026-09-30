@@ -141,6 +141,8 @@ it enabled.
 | `clawctl gateway-service status` | Inspect the gateway without starting it. When the gateway is not running, it may start/probe only the already-recorded isolated session to report file-only config readiness; it never provisions a replacement or starts the gateway. |
 | `clawctl gateway-service stop` | Stop the gateway while retaining the session and its data. |
 | `clawctl gateway-service restart` | Stop the gateway and start it again as one lifecycle operation. If the stop cannot be verified, it retains the gateway record and does not start a replacement. If no gateway is running, it starts one. |
+| `clawctl companion prepare --port <port> --json` | Prepare the agent account's Gateway for the Windows Companion app after `clawctl setup`. Preserve an existing local Gateway port, token, provider settings, and other configuration; otherwise use the requested loopback port and create a token. The JSON response includes `companion.port` and `companion.token`, so keep it private. Incompatible config or agent-side profile overrides fail rather than writing a host profile. |
+| `clawctl companion prepare --check --json` | Read the existing agent Gateway config without changing it. The JSON response includes its effective port and token, so keep it private. Fails if the agent config or authentication is missing or incompatible. |
 | `clawctl --version` | Print the packaged launcher version. |
 
 Bare `clawctl`, `clawctl -h`, and `clawctl --help` print help without changing
@@ -175,6 +177,20 @@ When the gateway is not confirmed running, status JSON includes an optional
 where applicable. The readiness states are `absent`, `not-ready`,
 `startup-eligible`, `unavailable`, and `unknown`. A running gateway omits this
 object and incurs no config-readiness probe.
+
+The package-qualified `clawctl status --json` identifies the Companion
+integration as `integration.kind: "isolated-session"` and
+`integration.version: 1`. After `clawctl companion prepare --port <port> --json`,
+use `clawctl gateway-service start --json` and
+`clawctl gateway-service status --json`. A running status includes
+`gateway.ownership` only when a single port and its isolated-session listener
+identities were observed. Each listener identity includes an OS process
+sequence number so Companion can detect PID reuse without opening an agent
+process handle. Companion checks those identities against fresh Windows
+listener and process-sequence snapshots before sending credentials; a port or
+session ID alone is not ownership proof. No `openclaw.json` is created under Companion's
+Windows account for this path. Older Gateway packages without the supported
+integration contract cannot be treated as isolated.
 
 Interactive terminals use color for headings and status marks. `--no-color`,
 the `NO_COLOR` environment variable, redirected output, and CI disable color;

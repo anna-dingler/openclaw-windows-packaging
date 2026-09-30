@@ -332,6 +332,34 @@ public sealed class GatewayControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task RunningStatusCarriesTheGuestListenerAndRecordedAgentIdentity()
+    {
+        var controller = CreateController();
+        var sessionStore = new SessionStateStore(Path.Combine(_root, "session.json"));
+        SessionRecord session = sessionStore.Read(ApplicationId).Record!;
+        sessionStore.Write(session with
+        {
+            AgentUserSid = "S-1-5-21-1111111111-2222222222-3333333333-1001"
+        });
+        var listener = new SessionOwnedListener
+        {
+            Port = 18789,
+            ProcessId = 4321,
+            ProcessStartTimeUtc = new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero),
+            SequenceNumber = 77
+        };
+        _client.Inspection = Healthy() with { OwnedListeners = [listener] };
+        await controller.StartAsync("helper.exe", CancellationToken.None);
+
+        GatewayStatusReport report = await controller.GetStatusAsync("helper.exe", CancellationToken.None);
+
+        Assert.Equal(GatewayState.Running, report.State);
+        Assert.Equal("iso:sandbox1", report.SandboxId);
+        Assert.Equal("S-1-5-21-1111111111-2222222222-3333333333-1001", report.AgentUserSid);
+        Assert.Equal([listener], report.OwnedListeners);
+    }
+
+    [Fact]
     public async Task ARecordedGatewayThatIsGoneIsReportedAsStopped()
     {
         // Stopping the session terminates detached work silently, so a record
