@@ -232,6 +232,7 @@ public sealed class SessionCompanionConfigTests : IDisposable
 
     [Theory]
     [InlineData("""{"gateway":{"mode":"remote"}}""")]
+    [InlineData("""{"gateway":{"port":19001,"auth":{"mode":"token","token":"existing-token"}}}""")]
     [InlineData("""{"gateway":{"bind":"lan"}}""")]
     [InlineData("""{"gateway":{"auth":{"mode":"password"}}}""")]
     [InlineData("""{"gateway":{"auth":{"token":""}}}""")]

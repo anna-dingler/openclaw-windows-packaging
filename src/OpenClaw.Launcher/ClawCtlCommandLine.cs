@@ -356,7 +356,7 @@ internal static class ClawCtlCommandLine
         };
         Option<bool> companionCheck = new("--check")
         {
-            Description = "Check the recorded agent configuration without modifying it."
+            Description = "Check the recorded agent configuration. A suspicious config may be restored by upstream."
         };
         Option<bool> companionJson = CreateJsonOption();
         companionPrepare.Options.Add(companionPort);

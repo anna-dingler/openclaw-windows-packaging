@@ -49,10 +49,13 @@ conflict deliberately. Do not run `clawctl setup --fresh` as a first repair:
 it removes the owned session.
 
 Before pairing or publishing, Companion also runs
-`clawctl companion prepare --check --json`. This is read-only and fails if the
-agent's port or token no longer matches the setup record; retry Companion setup
-to recover rather than copying configuration into the human user's profile.
-The JSON response contains a token and must be kept private.
+`clawctl companion prepare --check --json` to detect port or token changes.
+**This draft is not ready for release:** the pinned upstream config reader
+can restore a backup when a config is suspicious, so the current check is not
+guaranteed read-only. Do not use it as a non-mutating diagnostic for a degraded
+profile; an observation-free upstream reader is needed. Never copy
+configuration into the human user's profile. The JSON response contains a
+token and must be kept private.
 
 ## Companion cannot verify the isolated Gateway listener
 

@@ -223,14 +223,17 @@ internal static class SessionCompanionConfig
             throw new SessionLaunchException("The agent's effective Gateway configuration is not an object.");
         }
         JsonElement gateway = root;
-        foreach ((string property, string expected) in new[] { ("mode", "local"), ("bind", "loopback") })
+        if (!gateway.TryGetProperty("mode", out JsonElement mode) ||
+            mode.ValueKind != JsonValueKind.String || mode.GetString() != "local")
         {
-            if (gateway.TryGetProperty(property, out JsonElement value) &&
-                (value.ValueKind != JsonValueKind.String || value.GetString() != expected))
-            {
-                throw new SessionLaunchException(
-                    $"The agent's existing Gateway {property} is not {expected}. Reconfigure it explicitly.");
-            }
+            throw new SessionLaunchException(
+                "The agent's existing Gateway mode is not local. Reconfigure it explicitly.");
+        }
+        if (gateway.TryGetProperty("bind", out JsonElement bind) &&
+            (bind.ValueKind != JsonValueKind.String || bind.GetString() != "loopback"))
+        {
+            throw new SessionLaunchException(
+                "The agent's existing Gateway bind is not loopback. Reconfigure it explicitly.");
         }
         int? port = null;
         if (gateway.TryGetProperty("port", out JsonElement configuredPort))

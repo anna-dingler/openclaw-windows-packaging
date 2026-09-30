@@ -142,7 +142,7 @@ it enabled.
 | `clawctl gateway-service stop` | Stop the gateway while retaining the session and its data. |
 | `clawctl gateway-service restart` | Stop the gateway and start it again as one lifecycle operation. If the stop cannot be verified, it retains the gateway record and does not start a replacement. If no gateway is running, it starts one. |
 | `clawctl companion prepare --port <port> --json` | Prepare the agent account's Gateway for the Windows Companion app after `clawctl setup`. Read its effective upstream configuration, including JSON5 and `$include` values. A complete existing local Gateway port and token are returned without rewriting the file; otherwise use the requested loopback port and create a token. The JSON response includes `companion.port` and `companion.token`, so keep it private. Incompatible config or agent-side profile overrides fail rather than writing a host profile. |
-| `clawctl companion prepare --check --json` | Read the existing effective agent Gateway config without changing it. The JSON response includes its effective port and token, so keep it private. Fails if the agent config or authentication is missing or incompatible. |
+| `clawctl companion prepare --check --json` | Read the existing effective agent Gateway port and token, and keep the credential-bearing response private. **Not yet safe to ship:** the pinned upstream config loader can restore backup bytes for a suspicious config during this check. A stable observation-free upstream reader is required before this command can guarantee a non-mutating check. |
 | `clawctl --version` | Print the packaged launcher version. |
 
 Bare `clawctl`, `clawctl -h`, and `clawctl --help` print help without changing
