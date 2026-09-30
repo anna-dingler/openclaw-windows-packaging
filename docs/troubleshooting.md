@@ -37,8 +37,10 @@ under Companion's account is not the isolated agent's configuration.
 
 **Fix.** Retry **Install a local native gateway** in Companion. It calls the
 package-qualified `clawctl companion prepare --port <port> --json` to apply a
-local configuration inside the agent session, preserving an existing agent
-Gateway port and token. If Companion says the installed MSIX lacks the
+local configuration inside the agent session. It reads the upstream effective
+configuration, including JSON5 or `$include` values, and preserves the agent
+configuration bytes when its local Gateway port and token are already valid.
+If Companion says the installed MSIX lacks the
 versioned integration contract, update the Gateway MSIX rather than copying
 a configuration file between profiles. If preparation reports an incompatible
 mode, bind address, authentication method, or agent profile override,
@@ -55,14 +57,15 @@ The JSON response contains a token and must be kept private.
 ## Companion cannot verify the isolated Gateway listener
 
 **Check.** Run `clawctl gateway-service status --json` through the installed
-package. A healthy Gateway can still start and report status when the Windows
-process-sequence API is unavailable, but Companion requires the stricter
-`gateway.ownership.listeners` evidence, including a process ID and
-`sequenceNumber`, before it sends credentials. An unrelated listener on the
-selected port is not sufficient.
+package. Companion requires the `gateway.ownership.listeners` evidence,
+including a process ID and `sequenceNumber`, before it sends credentials. When
+the Windows process-sequence API is unavailable, that field is omitted from the
+status response and Companion reports that it cannot verify the isolated
+listener. An unrelated listener on the selected port is not sufficient.
 
-**Fix.** If the response says process-sequence inspection is unavailable,
-update Windows to a build that supports `SystemBasicProcessInformation`
+**Fix.** If Companion reports that it cannot verify the isolated listener and
+the status response has no `gateway.ownership.listeners`, update Windows to a
+build that supports `SystemBasicProcessInformation`
 (Windows 11 build 26100.4770 or later), then retry Companion. Re-running
 `clawctl setup` cannot add this operating-system API. If the report instead
 identifies a listener conflict, free the selected port before retrying. Do not

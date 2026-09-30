@@ -16,6 +16,27 @@ internal sealed partial class CompanionConfigPatchContext : JsonSerializerContex
 
 internal static class SessionCompanionConfig
 {
+    private const string EffectiveGatewayReader = """
+        import { resolve } from "node:path";
+        import { pathToFileURL } from "node:url";
+
+        const applicationDirectory = process.argv[1];
+        if (!applicationDirectory) {
+          process.exit(1);
+        }
+
+        const configRuntime = pathToFileURL(
+          resolve(applicationDirectory, "dist", "plugin-sdk", "config-runtime.js"),
+        ).href;
+        const { loadConfig } = await import(configRuntime);
+        const config = loadConfig({
+          pin: false,
+          skipPluginValidation: true,
+          skipShellEnvFallback: true,
+        });
+        process.stdout.write(JSON.stringify(config.gateway ?? {}));
+        """;
+
     public static int Run(
         string requestPath,
         Func<string, string> readFile,
@@ -23,6 +44,7 @@ internal static class SessionCompanionConfig
         string? profileRoot = null,
         Func<string, bool>? fileExists = null,
         Func<SessionCompanionConfigRequest, string, int>? applyPatch = null,
+        Func<SessionCompanionConfigRequest, (int ExitCode, string Output)>? readEffectiveConfiguration = null,
         Func<string, string?>? readEnvironmentVariable = null)
     {
         string resultPath = SessionLaunchProtocol.ResultPathFor(requestPath);
@@ -52,7 +74,7 @@ internal static class SessionCompanionConfig
             string configPath = Path.Combine(profileRoot ?? AgentProfile.GetPath(), ".openclaw", "openclaw.json");
             SessionCompanionConfigResult result = Configure(
                 request, configPath, readFile, writeFile, fileExists ?? File.Exists,
-                applyPatch ?? ApplyPatch);
+                applyPatch ?? ApplyPatch, readEffectiveConfiguration ?? ReadEffectiveConfiguration);
             writeFile(resultPath, SessionCompanionConfigProtocol.SerializeResult(result));
             return 0;
         }
@@ -72,7 +94,8 @@ internal static class SessionCompanionConfig
         Func<string, string> readFile,
         Action<string, string> writeFile,
         Func<string, bool> fileExists,
-        Func<SessionCompanionConfigRequest, string, int> applyPatch)
+        Func<SessionCompanionConfigRequest, string, int> applyPatch,
+        Func<SessionCompanionConfigRequest, (int ExitCode, string Output)> readEffectiveConfiguration)
     {
         if (request.CheckOnly)
         {
@@ -82,7 +105,8 @@ internal static class SessionCompanionConfig
                     "The agent's Gateway configuration is missing. Run `clawctl companion prepare` first.");
             }
 
-            (int? effectivePort, string? effectiveToken) = ReadConfiguration(readFile(configPath));
+            (int? effectivePort, string? effectiveToken) =
+                ReadEffectiveConfiguration(request, readEffectiveConfiguration);
             if (effectivePort is null || string.IsNullOrWhiteSpace(effectiveToken))
             {
                 throw new SessionLaunchException(
@@ -98,8 +122,18 @@ internal static class SessionCompanionConfig
         }
 
         (int? existingPort, string? existingToken) = fileExists(configPath)
-            ? ReadConfiguration(readFile(configPath))
+            ? ReadEffectiveConfiguration(request, readEffectiveConfiguration)
             : (null, null);
+        if (existingPort is not null && !string.IsNullOrWhiteSpace(existingToken))
+        {
+            return new SessionCompanionConfigResult
+            {
+                RequestId = request.RequestId,
+                Port = existingPort.Value,
+                Token = existingToken
+            };
+        }
+
         int port = existingPort ?? request.Port;
         string token = existingToken ?? Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         string patchPath = Path.Combine(
@@ -129,7 +163,8 @@ internal static class SessionCompanionConfig
         {
             throw new SessionLaunchException("OpenClaw did not create the agent's Gateway configuration.");
         }
-        (int? configuredPort, string? configuredToken) = ReadConfiguration(readFile(configPath));
+        (int? configuredPort, string? configuredToken) =
+            ReadEffectiveConfiguration(request, readEffectiveConfiguration);
         if (configuredPort != port || configuredToken != token)
         {
             throw new SessionLaunchException(
@@ -138,7 +173,44 @@ internal static class SessionCompanionConfig
         return new SessionCompanionConfigResult { RequestId = request.RequestId, Port = port, Token = token };
     }
 
-    private static (int? Port, string? Token) ReadConfiguration(string json)
+    private static (int? Port, string? Token) ReadEffectiveConfiguration(
+        SessionCompanionConfigRequest request,
+        Func<SessionCompanionConfigRequest, (int ExitCode, string Output)> readEffectiveConfiguration)
+    {
+        (int exitCode, string output) = readEffectiveConfiguration(request);
+        if (exitCode != 0)
+        {
+            if (IsGatewayUnset(output))
+            {
+                return (null, null);
+            }
+
+            throw new SessionLaunchException(
+                $"OpenClaw could not read the effective Gateway configuration (exit code {exitCode}). " +
+                "Inspect it with `clawctl pwsh` and `openclaw config validate`.");
+        }
+
+        return ReadGatewayConfiguration(output);
+    }
+
+    private static bool IsGatewayUnset(string output)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            return document.RootElement.TryGetProperty("error", out JsonElement error) &&
+                error.ValueKind == JsonValueKind.Object &&
+                error.TryGetProperty("message", out JsonElement message) &&
+                message.ValueKind == JsonValueKind.String &&
+                message.GetString()!.StartsWith("Config path is valid but unset: gateway.", StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static (int? Port, string? Token) ReadGatewayConfiguration(string json)
     {
         using JsonDocument document = JsonDocument.Parse(json, new JsonDocumentOptions
         {
@@ -148,16 +220,9 @@ internal static class SessionCompanionConfig
         JsonElement root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
         {
-            throw new SessionLaunchException("The agent's OpenClaw configuration is not an object.");
+            throw new SessionLaunchException("The agent's effective Gateway configuration is not an object.");
         }
-        if (!root.TryGetProperty("gateway", out JsonElement gateway))
-        {
-            return (null, null);
-        }
-        if (gateway.ValueKind != JsonValueKind.Object)
-        {
-            throw new SessionLaunchException("The agent's Gateway configuration is not an object.");
-        }
+        JsonElement gateway = root;
         foreach ((string property, string expected) in new[] { ("mode", "local"), ("bind", "loopback") })
         {
             if (gateway.TryGetProperty(property, out JsonElement value) &&
@@ -194,10 +259,12 @@ internal static class SessionCompanionConfig
             return (port, null);
         }
         if (authToken.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(authToken.GetString()) ||
-            authToken.GetString()!.Contains("${", StringComparison.Ordinal))
+            authToken.GetString()!.Contains("${", StringComparison.Ordinal) ||
+            authToken.GetString() == "__OPENCLAW_REDACTED__")
         {
             throw new SessionLaunchException(
-                "The existing Gateway token cannot be used by Companion. Configure a literal token explicitly.");
+                "OpenClaw did not expose the existing Gateway token to Companion. " +
+                "The existing configuration was not changed.");
         }
         return (port, authToken.GetString());
     }
@@ -206,9 +273,31 @@ internal static class SessionCompanionConfig
         => RunOpenClaw(request, Path.GetDirectoryName(patchPath)!,
             ["config", "patch", "--file", patchPath], null).ExitCode;
 
+    private static (int ExitCode, string Output) ReadEffectiveConfiguration(
+        SessionCompanionConfigRequest request)
+        => RunNode(
+            request,
+            AppContext.BaseDirectory,
+            null,
+            ["--input-type=module", "--eval", EffectiveGatewayReader, request.ApplicationDirectory!],
+            null);
+
     private static (int ExitCode, string Output) RunOpenClaw(
         SessionCompanionConfigRequest request,
         string workingDirectory,
+        IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string>? overrides)
+        => RunNode(
+            request,
+            workingDirectory,
+            Path.Combine(request.ApplicationDirectory!, "openclaw.mjs"),
+            arguments,
+            overrides);
+
+    private static (int ExitCode, string Output) RunNode(
+        SessionCompanionConfigRequest request,
+        string workingDirectory,
+        string? scriptPath,
         IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string>? overrides)
     {
@@ -230,7 +319,10 @@ internal static class SessionCompanionConfig
             start.ArgumentList.Add("--import");
             start.ArgumentList.Add(new Uri(request.PreloadPath!).AbsoluteUri);
         }
-        start.ArgumentList.Add(Path.Combine(request.ApplicationDirectory!, "openclaw.mjs"));
+        if (scriptPath is not null)
+        {
+            start.ArgumentList.Add(scriptPath);
+        }
         foreach (string argument in arguments)
         {
             start.ArgumentList.Add(argument);

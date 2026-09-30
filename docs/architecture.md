@@ -211,9 +211,16 @@ package registration and qualified `clawctl.exe` alias. It probes
 `clawctl status --json` for the versioned `isolated-session` integration
 contract. After setup, `clawctl companion prepare --port <port> --json`
 instructs [`SessionCompanionConfig`](../src/OpenClaw.SessionHost/SessionCompanionConfig.cs)
-to inspect the agent's default `openclaw.json` inside the recorded session.
-The agent invokes the packaged upstream `openclaw config patch` to write
-configuration, preserving existing provider settings, Gateway port, and token.
+to ask the packaged upstream `openclaw config get gateway --json` for the
+agent's effective Gateway configuration. This preserves upstream JSON5 and
+`$include` ownership. The session host uses the packaged upstream plugin SDK's
+stable `loadConfig` export, rather than the public CLI's redacted display
+command, through a fixed secret-free Node module expression. It emits only the
+effective Gateway object over its private helper protocol, so it does not
+depend on extra files in the staged guest-helper directory. When an effective
+local loopback token configuration already exists, prepare returns it without
+rewriting the configuration file; otherwise the agent invokes packaged upstream
+`openclaw config patch` once to create the missing values.
 Before pairing and publishing Companion's record, the package-qualified
 `clawctl companion prepare --check --json` checks that the agent's effective
 port and token still match the values used by Companion without modifying the
