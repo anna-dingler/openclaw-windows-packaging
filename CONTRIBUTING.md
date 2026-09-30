@@ -17,6 +17,9 @@ summary below:
 
 - PowerShell 7
 - The .NET SDK feature band pinned in `global.json`
+- Node.js on `PATH` for the Companion configuration adapter tests. They run
+  the production Node.js expression against fixture SDK modules, not an
+  installed OpenClaw application or user profile.
 - Visual Studio Build Tools with the **Desktop development with C++** workload
   and the Windows SDK, for NativeAOT publish and MSIX composition
 

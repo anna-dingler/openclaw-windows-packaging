@@ -3,6 +3,7 @@ using System.Text.Json;
 using OpenClaw.Launcher.Gateway;
 using OpenClaw.Launcher.Mxc;
 using OpenClaw.Launcher.Session;
+using OpenClaw.SessionHost;
 using OpenClaw.SessionProtocol;
 using LauncherProgram = OpenClaw.Launcher.Program;
 
@@ -40,6 +41,8 @@ internal static class SmokeProgram
             ("--help prints help", HelpOptionPrintsHelpAsync),
             ("setup --help prints command help", SetupHelpPrintsCommandHelpAsync),
             ("gateway-service help includes restart", GatewayServiceHelpIncludesRestartAsync),
+            ("Companion help parses under NativeAOT", CompanionHelpParsesAsync),
+            ("Companion failures identify their command", CompanionFailureNamesCommandAsync),
             ("completion --help prints command help", CompletionHelpPrintsCommandHelpAsync),
             ("pwsh help includes execution modes", PowerShellHelpIncludesExecutionModesAsync),
             ("--version reports the launcher", VersionReportsLauncherAssemblyAsync),
@@ -48,6 +51,8 @@ internal static class SmokeProgram
             ("unpackaged setup reports identity failure", SetupReportsReadinessAsync),
             ("JSON failures survive NativeAOT", JsonFailureIsStructuredAsync),
             ("version JSON survives NativeAOT", VersionJsonIsStructuredAsync),
+            ("Companion JSON survives NativeAOT", CompanionJsonIsStructured),
+            ("Companion snapshot and patch survive NativeAOT", CompanionSnapshotAndPatchAreStructured),
             ("Spectre renders clawctl output under NativeAOT", SpectreOutputRenders),
             ("gateway narration survives NativeAOT", GatewayNarrationRenders),
             ("Windows logon identity survives NativeAOT", WindowsLogonIdentityWorks),
@@ -200,6 +205,92 @@ internal static class SmokeProgram
         AssertExitCode(0, exitCode, fixture);
         AssertContains(fixture.Output.ToString(), "restart", fixture);
         fixture.AssertNoInstallationWorkStarted();
+    }
+
+    private static async Task CompanionHelpParsesAsync()
+    {
+        using Fixture fixture = Fixture.CreateWithoutApplication();
+
+        int prepare = await fixture.RunAsync(["companion", "prepare", "--help"])
+            .ConfigureAwait(false);
+        AssertExitCode(0, prepare, fixture);
+        AssertContains(fixture.Output.ToString(), "--port", fixture);
+        AssertContains(fixture.Output.ToString(), "--check", fixture);
+        fixture.Output.GetStringBuilder().Clear();
+        int companion = await fixture.RunAsync(["companion", "--help"])
+            .ConfigureAwait(false);
+        AssertExitCode(0, companion, fixture);
+        AssertContains(fixture.Output.ToString(), "prepare", fixture);
+        AssertNotContains(fixture.Output.ToString(), "devices", fixture);
+        fixture.AssertNoInstallationWorkStarted();
+    }
+
+    private static async Task CompanionFailureNamesCommandAsync()
+    {
+        using Fixture fixture = Fixture.CreateWithoutApplication();
+
+        int exitCode = await fixture.RunAsync(["companion", "prepare", "--check"])
+            .ConfigureAwait(false);
+
+        AssertExitCode(1, exitCode, fixture);
+        AssertContains(fixture.Error.ToString(), "companion prepare", fixture);
+        AssertNotContains(fixture.Error.ToString(), "command:", fixture);
+        AssertContains(
+            fixture.Error.ToString(),
+            "scenario driver never performs installation work",
+            fixture);
+    }
+
+    private static Task CompanionJsonIsStructured()
+    {
+        using var output = new StringWriter();
+        ClawCtlJson.WriteResult(output, new CompanionPrepareResult(
+            0, Port: 19001, Token: "fixture-token"));
+        using JsonDocument document = JsonDocument.Parse(output.ToString());
+        JsonElement root = document.RootElement;
+        Assert(root.GetProperty("integration").GetProperty("kind").GetString() == "isolated-session",
+            "Companion integration was missing from the native JSON document.");
+        Assert(root.GetProperty("companion").GetProperty("token").GetString() == "fixture-token",
+            "Companion's prepared agent token was missing from the native JSON document.");
+
+        return Task.CompletedTask;
+    }
+
+    private static Task CompanionSnapshotAndPatchAreStructured()
+    {
+        using Fixture fixture = Fixture.CreateWithoutApplication();
+        string configPath = Path.Combine(fixture.Root, "agent", ".openclaw", "openclaw.json");
+        using JsonDocument gateway = JsonDocument.Parse("{}");
+        string snapshot = JsonSerializer.Serialize(
+            new CompanionConfigSnapshot(gateway.RootElement, configPath, "initial-hash", false),
+            CompanionConfigPatchContext.Default.CompanionConfigSnapshot);
+        CompanionConfigPatch? patch = null;
+        SessionCompanionConfigResult result = SessionCompanionConfig.Configure(
+            new SessionCompanionConfigRequest { RequestId = "aot-snapshot", Port = 19001 },
+            configPath, File.WriteAllText,
+            (_, path) =>
+            {
+                patch = JsonSerializer.Deserialize(
+                    File.ReadAllText(path), CompanionConfigPatchContext.Default.CompanionConfigPatch);
+                Assert(patch is not null && patch.ExpectedHash == "initial-hash" &&
+                    patch.ExpectedPath == configPath &&
+                    !patch.ExpectedGateway.EnumerateObject().Any(),
+                    "The conditional patch lost its snapshot identity.");
+                string prepared = JsonSerializer.Serialize(
+                    patch, CompanionConfigPatchContext.Default.CompanionConfigPatch);
+                using JsonDocument preparedDocument = JsonDocument.Parse(prepared);
+                snapshot = JsonSerializer.Serialize(new CompanionConfigSnapshot(
+                    preparedDocument.RootElement.GetProperty("gateway"), configPath, "written-hash", true),
+                    CompanionConfigPatchContext.Default.CompanionConfigSnapshot);
+                return 0;
+            },
+            _ => (0, snapshot));
+
+        Assert(patch is not null && result.Port == 19001 && result.Token == patch.Gateway.Auth.Token,
+            "The prepared result did not survive the snapshot/patch round trip.");
+        Assert(!Directory.EnumerateFiles(Path.GetDirectoryName(configPath)!).Any(),
+            "The temporary credential patch was not removed.");
+        return Task.CompletedTask;
     }
 
     private static async Task CompletionHelpPrintsCommandHelpAsync()
@@ -659,6 +750,15 @@ internal static class SmokeProgram
         Assert(
             haystack.Contains(needle, StringComparison.Ordinal),
             $"Expected to find '{needle}'." +
+            $"{Environment.NewLine}stdout: {fixture.Output}" +
+            $"{Environment.NewLine}stderr: {fixture.Error}");
+    }
+
+    private static void AssertNotContains(string haystack, string needle, Fixture fixture)
+    {
+        Assert(
+            !haystack.Contains(needle, StringComparison.Ordinal),
+            $"Expected not to find '{needle}'." +
             $"{Environment.NewLine}stdout: {fixture.Output}" +
             $"{Environment.NewLine}stderr: {fixture.Error}");
     }

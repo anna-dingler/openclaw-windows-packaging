@@ -27,6 +27,60 @@ clawctl setup
 
 For another stated prerequisite, correct that prerequisite and rerun setup.
 
+## Companion reports that the agent Gateway config is absent
+
+**Check.** `clawctl gateway-service status --json` may report
+`gateway.readiness.state: "absent"` even though `clawctl setup` succeeded.
+The latter installs the session and Node.js runtime; it does not choose
+Gateway authentication or port settings. A host-side `openclaw.json` written
+under Companion's account is not the isolated agent's configuration.
+
+**Fix.** Retry **Install a local native gateway** in Companion. It calls the
+package-qualified `clawctl companion prepare --port <port> --json` to apply a
+local configuration inside the agent session. It reads the upstream effective
+configuration, including JSON5 or `$include` values, and preserves the agent
+configuration bytes when its local Gateway port and token are already valid.
+An absent Gateway section can be initialized without replacing unrelated
+settings. A partial Gateway section without `mode: "local"` cannot: resolve
+its intended mode explicitly in the agent session.
+If Companion says the installed MSIX lacks the
+versioned integration contract, update the Gateway MSIX rather than copying
+a configuration file between profiles. If preparation reports an incompatible
+mode, bind address, authentication method, or agent profile override,
+inspect that configuration through `clawctl pwsh` and resolve the reported
+conflict deliberately. Password authentication is incompatible even if its
+mode is implicit or a token is also present. Check agent environment and
+dotenv settings for profile, path, port, token, or password overrides. If the
+configuration changed during preparation, finish that edit and retry rather
+than overwriting it. Do not run `clawctl setup --fresh` as a first repair:
+it removes the owned session.
+
+Before pairing or publishing, Companion also runs
+`clawctl companion prepare --check --json` to detect port or token changes.
+The check uses the upstream observation-free snapshot reader. It does not
+restore backups, patch configuration, or record config-health observations.
+An incomplete or incompatible configuration fails and requires explicit
+recovery. Never copy
+configuration into the human user's profile. The JSON response contains a
+token and must be kept private.
+
+## Companion cannot verify the isolated Gateway listener
+
+**Check.** Run `clawctl gateway-service status --json` through the installed
+package. Companion requires the `gateway.ownership.listeners` evidence,
+including a process ID and `sequenceNumber`, before it sends credentials. When
+the Windows process-sequence API is unavailable, that field is omitted from the
+status response and Companion reports that it cannot verify the isolated
+listener. An unrelated listener on the selected port is not sufficient.
+
+**Fix.** If Companion reports that it cannot verify the isolated listener and
+the status response has no `gateway.ownership.listeners`, update Windows to a
+build that supports `SystemBasicProcessInformation`
+(Windows 11 build 26100.4770 or later), then retry Companion. Re-running
+`clawctl setup` cannot add this operating-system API. If the report instead
+identifies a listener conflict, free the selected port before retrying. Do not
+disable ownership checks or copy a host-side config into the agent profile.
+
 ## Automatic setup failed during `openclaw`
 
 **Check.** Preserve the complete automatic-setup error from standard error. It

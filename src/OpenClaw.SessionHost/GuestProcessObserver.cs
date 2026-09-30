@@ -247,6 +247,20 @@ internal sealed class ProcessTreeSnapshot
     }
 
     /// <summary>
+    /// Requires one process generation for every link used in attribution.
+    /// </summary>
+    public bool HasStableAncestry(
+        int candidate, int ancestor,
+        IReadOnlyDictionary<int, ulong> before,
+        IReadOnlyDictionary<int, ulong> after)
+    {
+        List<int>? chain = candidate == ancestor ? [candidate] : ChainTo(candidate, ancestor);
+        return chain is not null && chain.All(processId =>
+            before.TryGetValue(processId, out ulong sequence) && sequence != 0 &&
+            after.TryGetValue(processId, out ulong current) && current == sequence);
+    }
+
+    /// <summary>
     /// The snapshot chain from <paramref name="candidate"/> up to the first
     /// parent that is <paramref name="ancestor"/>, or null when the chain ends
     /// or loops before reaching it.
@@ -274,7 +288,7 @@ internal sealed class ProcessTreeSnapshot
         return null;
     }
 
-    private DateTimeOffset? StartTimeOf(int processId)
+    public DateTimeOffset? StartTimeOf(int processId)
     {
         if (!_startTimes.TryGetValue(processId, out DateTimeOffset? start))
         {

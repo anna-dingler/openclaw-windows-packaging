@@ -471,6 +471,100 @@ internal sealed class SessionExecutor
         }
     }
 
+    public async Task<SessionCompanionConfigResult> ConfigureCompanionAsync(
+        SessionRecord record,
+        string helperPath,
+        string nodePath,
+        string applicationDirectory,
+        int port,
+        string? nativeRootPath,
+        string? preloadPath,
+        IReadOnlyDictionary<string, string> environment,
+        bool checkOnly,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        var request = new SessionCompanionConfigRequest
+        {
+            RequestId = _createRequestId(),
+            Port = port,
+            NodePath = nodePath,
+            ApplicationDirectory = applicationDirectory,
+            NativeRootPath = nativeRootPath,
+            PreloadPath = preloadPath,
+            Environment = environment,
+            CheckOnly = checkOnly
+        };
+        (string resultText, int exitCode) = await RunCompanionOperationAsync(
+            record, helperPath, request, "--companion-config",
+            "Companion Gateway configuration", cancellationToken).ConfigureAwait(false);
+        SessionCompanionConfigResult result;
+        try
+        {
+            result = SessionCompanionConfigProtocol.ReadResult(resultText, request.RequestId!);
+        }
+        catch (SessionLaunchException exception)
+        {
+            throw new SessionException(
+                $"The isolated session reported an invalid Companion configuration result: {exception.Message}",
+                exception);
+        }
+        if (result.Error is { Length: > 0 } error)
+        {
+            throw new SessionException($"The isolated session could not configure the Gateway: {error}");
+        }
+        if (exitCode != 0)
+        {
+            throw new SessionException(
+                $"The isolated session failed to configure the Gateway (executor exit code {exitCode}).");
+        }
+        return result;
+    }
+
+    private async Task<(string Text, int ExitCode)> RunCompanionOperationAsync(
+        SessionRecord record,
+        string helperPath,
+        SessionCompanionConfigRequest request,
+        string mode,
+        string subject,
+        CancellationToken cancellationToken)
+    {
+        using var operation = new SessionWorkspaceOperation(record, _isCurrentRecord);
+        string requestPath = operation.FilePath(mode[2..], request.RequestId!);
+        string resultPath = SessionLaunchProtocol.ResultPathFor(requestPath);
+        try
+        {
+            await operation.WriteTextNewAsync(
+                requestPath,
+                SessionCompanionConfigProtocol.SerializeRequest(request),
+                cancellationToken).ConfigureAwait(false);
+
+            _log($"Running {subject} inside the isolated session.");
+            MxcExecutionResult execution = await ExecuteTimedAsync(
+                record.ToSandboxIdOrThrow(),
+                BuildGuestCommandLine(helperPath, requestPath, mode),
+                subject,
+                cancellationToken).ConfigureAwait(false);
+            operation.EnsureCurrent();
+            try
+            {
+                string resultText = await operation.ReadTextAsync(resultPath, cancellationToken)
+                    .ConfigureAwait(false);
+                return (resultText, execution.ExitCode);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                throw new SessionException(
+                    $"The isolated session did not report a {subject} result.", exception);
+            }
+        }
+        finally
+        {
+            operation.Delete(requestPath);
+            operation.Delete(resultPath);
+        }
+    }
+
     /// <summary>
     /// Installs the packaged Node.js runtime into the agent's profile.
     /// </summary>

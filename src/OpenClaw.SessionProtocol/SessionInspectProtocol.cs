@@ -109,6 +109,10 @@ public sealed record SessionInspectResult
     [JsonPropertyName("listeningPorts")]
     public IReadOnlyList<int>? ListeningPorts { get; init; }
 
+    /// <summary>Process identities of listeners attributed to the recorded supervisor.</summary>
+    [JsonPropertyName("ownedListeners")]
+    public IReadOnlyList<SessionOwnedListener>? OwnedListeners { get; init; }
+
     /// <summary>
     /// The listener belongs to the recorded supervisor or one of its
     /// descendants. Without this a gateway is only assumed from an open port,
@@ -134,6 +138,24 @@ public sealed record SessionInspectResult
         StartTimeMatches &&
         PortListening &&
         ListenerOwned;
+}
+
+public sealed record SessionOwnedListener
+{
+    [JsonPropertyName("port")]
+    [JsonRequired]
+    public int Port { get; init; }
+
+    [JsonPropertyName("processId")]
+    [JsonRequired]
+    public int ProcessId { get; init; }
+
+    [JsonPropertyName("processStartTimeUtc")]
+    [JsonRequired]
+    public DateTimeOffset ProcessStartTimeUtc { get; init; }
+
+    [JsonPropertyName("sequenceNumber")]
+    public ulong SequenceNumber { get; init; }
 }
 
 /// <summary>
@@ -242,6 +264,15 @@ public static class SessionInspectProtocol
                 $"Inspect result schema version {result.SchemaVersion} is not " +
                 "supported; this launcher implements version " +
                 $"{SessionLaunchProtocol.CurrentSchemaVersion}.");
+        }
+
+        if (result.OwnedListeners?.Any(listener =>
+            listener.Port is < 1 or > 65535 ||
+            listener.ProcessId <= 0 ||
+            listener.ProcessStartTimeUtc == default ||
+            listener.SequenceNumber == 0) == true)
+        {
+            throw new SessionLaunchException("The inspect result has an invalid listener identity.");
         }
 
         return result;

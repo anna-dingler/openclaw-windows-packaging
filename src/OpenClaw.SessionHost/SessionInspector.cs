@@ -45,7 +45,8 @@ internal static class SessionInspector
 
     internal static SessionInspectResult Inspect(
         SessionInspectRequest request,
-        Func<string, string> readFile)
+        Func<string, string> readFile,
+        Func<IReadOnlyDictionary<int, ulong>>? captureSequences = null)
     {
         if (request.LaunchPending)
         {
@@ -78,9 +79,26 @@ internal static class SessionInspector
             // the user pinned a port, it is additionally checked against what
             // was observed, so a gateway on the wrong port is not reported as
             // healthy.
-            IReadOnlyList<int> owned = matches && error is null
-                ? GuestProcessObserver.ListeningPortsOwnedBy(request.ProcessId)
+            IReadOnlyDictionary<int, ulong> before = matches && error is null
+                ? CaptureSequences(captureSequences ?? WindowsProcessSequenceSnapshot.Capture)
+                : new Dictionary<int, ulong>();
+            IReadOnlyList<(int Port, int Owner)> listeners = matches && error is null
+                ? TcpListenerOwnership.GetListeners()
                 : [];
+            ProcessTreeSnapshot tree = new();
+            IReadOnlyList<int> owned = GuestProcessObserver.ListeningPortsOwnedBy(
+                listeners, tree, request.ProcessId);
+            List<SessionOwnedListener> identities = ObserveOwnedListeners(listeners, tree, request.ProcessId);
+            IReadOnlyDictionary<int, ulong> after = identities.Count > 0
+                ? CaptureSequences(captureSequences ?? WindowsProcessSequenceSnapshot.Capture)
+                : new Dictionary<int, ulong>();
+            if (identities.Any(identity =>
+                !tree.HasStableAncestry(identity.ProcessId, request.ProcessId, before, after)))
+            {
+                identities.Clear();
+            }
+            identities = [.. identities.Select(identity =>
+                identity with { SequenceNumber = after[identity.ProcessId] })];
             bool ownsConfigured = request.Port is not int configured ||
                 owned.Contains(configured);
 
@@ -95,6 +113,7 @@ internal static class SessionInspector
                     ? GuestProcessObserver.AnythingListeningOn(probe)
                     : owned.Count > 0,
                 ListeningPorts = owned,
+                OwnedListeners = identities.Count > 0 ? identities : null,
                 ListenerOwned = owned.Count > 0 && ownsConfigured,
                 Error = error
             };
@@ -104,9 +123,48 @@ internal static class SessionInspector
             return NotFound(request, readFile);
         }
         catch (Exception exception) when (
-            exception is Win32Exception or InvalidOperationException or NotSupportedException)
+            exception is Win32Exception or InvalidOperationException or NotSupportedException or InvalidDataException)
         {
             return new SessionInspectResult { RequestId = request.RequestId, Error = exception.Message };
+        }
+    }
+
+    internal static List<SessionOwnedListener> ObserveOwnedListeners(
+        IReadOnlyList<(int Port, int Owner)> listeners, ProcessTreeSnapshot tree, int ancestor)
+    {
+        List<SessionOwnedListener> identities = [];
+        foreach ((int port, int owner) in listeners.Distinct())
+        {
+            if (!tree.IsSelfOrDescendant(owner, ancestor))
+            {
+                continue;
+            }
+            DateTimeOffset? startTime = tree.StartTimeOf(owner);
+            if (startTime is null)
+            {
+                return [];
+            }
+            identities.Add(new SessionOwnedListener
+            {
+                Port = port,
+                ProcessId = owner,
+                ProcessStartTimeUtc = startTime.Value
+            });
+        }
+        return identities;
+    }
+
+    private static IReadOnlyDictionary<int, ulong> CaptureSequences(
+        Func<IReadOnlyDictionary<int, ulong>> captureSequences)
+    {
+        try
+        {
+            return captureSequences();
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or InvalidOperationException or NotSupportedException)
+        {
+            return new Dictionary<int, ulong>();
         }
     }
 

@@ -238,6 +238,13 @@ internal static class Program
                 return action is null ? argument : $"{argument} {action}";
             }
 
+            if (argument == "companion")
+            {
+                string? action = args.Skip(index + 1)
+                    .FirstOrDefault(candidate => candidate == "prepare");
+                return action is null ? argument : $"{argument} {action}";
+            }
+
             if (argument is "setup" or "status" or "collect-logs" or "teardown" or "open" or "pwsh")
             {
                 return argument;
@@ -599,6 +606,15 @@ internal static class Program
                 result.State == Gateway.GatewayState.Running ? 0 : 1,
                 port));
         }
+
+        IReadOnlyDictionary<string, string> CompanionEnvironment(
+            string applicationDirectory, string? nativeRoot) =>
+            nativeRoot is null
+                ? OpenClawRuntimeEnvironment.Build()
+                : Session.SessionExecutor.MergeEnvironment(
+                    OpenClawRuntimeEnvironment.Build(),
+                    OpenClawRuntimeEnvironment.BuildNativeRedirect(
+                        applicationDirectory, nativeRoot));
 
         async Task<int> RunSetupCommandAsync(
             SetupOptions setupOptions,
@@ -975,7 +991,10 @@ internal static class Program
                                     ? configReadiness?.ProbeFailed == true ? 1 : 0
                                     : 1,
                                 port,
-                                Readiness: configReadiness);
+                                Readiness: configReadiness,
+                                SandboxId: result.SandboxId,
+                                AgentUserSid: result.AgentUserSid,
+                                OwnedListeners: result.OwnedListeners);
                         }).ConfigureAwait(false);
                     return WriteResult(commandResult);
                 },
@@ -1027,6 +1046,37 @@ internal static class Program
 
                     return WriteGatewayStartResult("restart", result.Start);
                 },
+                CompanionPrepare = async (port, checkOnly, cancellationToken) =>
+                {
+                    try
+                    {
+                        Session.SessionRuntime runtime = GetSessionRuntime();
+                        Session.SessionRecord record = await runtime.StartForExecutionAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        using Session.ISessionLockHandle handle = runtime.AcquireLifecycleLock();
+                        record = runtime.RequireSetup();
+                        string applicationDirectory = options.RequirePackagedApplicationDirectory();
+                        string? nativeRoot = runtime.GetAgentNativeRoot();
+                        OpenClaw.SessionProtocol.SessionCompanionConfigResult result =
+                            await runtime.Executor.ConfigureCompanionAsync(
+                                record,
+                                runtime.RequireStagedHelper(record),
+                                runtime.RequireAgentNodePath(options.RequirePackagedNodeArchivePath()),
+                                applicationDirectory,
+                                port,
+                                nativeRoot,
+                                nativeRoot is null ? null : ResolveNativeRedirectPreloadPath(),
+                                CompanionEnvironment(applicationDirectory, nativeRoot),
+                                checkOnly,
+                                cancellationToken).ConfigureAwait(false);
+                        return WriteResult(new CompanionPrepareResult(0, result.Port, result.Token));
+                    }
+                    catch (Session.SessionException exception) when (outputOptions.Json)
+                    {
+                        log($"Companion Gateway preparation failed: {DiagnosticFailure.Describe(exception)}");
+                        return WriteResult(new CompanionPrepareResult(1, Error: exception.Message));
+                    }
+                }
             },
             outputOptions);
 
