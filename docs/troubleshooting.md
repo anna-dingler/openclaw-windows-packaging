@@ -40,20 +40,27 @@ package-qualified `clawctl companion prepare --port <port> --json` to apply a
 local configuration inside the agent session. It reads the upstream effective
 configuration, including JSON5 or `$include` values, and preserves the agent
 configuration bytes when its local Gateway port and token are already valid.
+An absent Gateway section can be initialized without replacing unrelated
+settings. A partial Gateway section without `mode: "local"` cannot: resolve
+its intended mode explicitly in the agent session.
 If Companion says the installed MSIX lacks the
 versioned integration contract, update the Gateway MSIX rather than copying
 a configuration file between profiles. If preparation reports an incompatible
 mode, bind address, authentication method, or agent profile override,
 inspect that configuration through `clawctl pwsh` and resolve the reported
-conflict deliberately. Do not run `clawctl setup --fresh` as a first repair:
+conflict deliberately. Password authentication is incompatible even if its
+mode is implicit or a token is also present. Check agent environment and
+dotenv settings for profile, path, port, token, or password overrides. If the
+configuration changed during preparation, finish that edit and retry rather
+than overwriting it. Do not run `clawctl setup --fresh` as a first repair:
 it removes the owned session.
 
 Before pairing or publishing, Companion also runs
 `clawctl companion prepare --check --json` to detect port or token changes.
-**This draft is not ready for release:** the pinned upstream config reader
-can restore a backup when a config is suspicious, so the current check is not
-guaranteed read-only. Do not use it as a non-mutating diagnostic for a degraded
-profile; an observation-free upstream reader is needed. Never copy
+The check uses the upstream observation-free snapshot reader. It does not
+restore backups, patch configuration, or record config-health observations.
+An incomplete or incompatible configuration fails and requires explicit
+recovery. Never copy
 configuration into the human user's profile. The JSON response contains a
 token and must be kept private.
 

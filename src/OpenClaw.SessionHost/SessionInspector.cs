@@ -79,38 +79,26 @@ internal static class SessionInspector
             // the user pinned a port, it is additionally checked against what
             // was observed, so a gateway on the wrong port is not reported as
             // healthy.
+            IReadOnlyDictionary<int, ulong> before = matches && error is null
+                ? CaptureSequences(captureSequences ?? WindowsProcessSequenceSnapshot.Capture)
+                : new Dictionary<int, ulong>();
             IReadOnlyList<(int Port, int Owner)> listeners = matches && error is null
                 ? TcpListenerOwnership.GetListeners()
                 : [];
             ProcessTreeSnapshot tree = new();
             IReadOnlyList<int> owned = GuestProcessObserver.ListeningPortsOwnedBy(
                 listeners, tree, request.ProcessId);
-            IReadOnlyDictionary<int, ulong> sequences = listeners.Count > 0
+            List<SessionOwnedListener> identities = ObserveOwnedListeners(listeners, tree, request.ProcessId);
+            IReadOnlyDictionary<int, ulong> after = identities.Count > 0
                 ? CaptureSequences(captureSequences ?? WindowsProcessSequenceSnapshot.Capture)
                 : new Dictionary<int, ulong>();
-            List<SessionOwnedListener> identities = [];
-            foreach ((int port, int owner) in listeners.Distinct())
+            if (identities.Any(identity =>
+                !tree.HasStableAncestry(identity.ProcessId, request.ProcessId, before, after)))
             {
-                if (!tree.IsSelfOrDescendant(owner, request.ProcessId))
-                {
-                    continue;
-                }
-                DateTimeOffset? startTime = GuestProcessObserver.GetStartTimeUtc(owner);
-                if (startTime is null ||
-                    !sequences.TryGetValue(owner, out ulong sequence) ||
-                    sequence == 0)
-                {
-                    identities.Clear();
-                    break;
-                }
-                identities.Add(new SessionOwnedListener
-                {
-                    Port = port,
-                    ProcessId = owner,
-                    ProcessStartTimeUtc = startTime.Value,
-                    SequenceNumber = sequence
-                });
+                identities.Clear();
             }
+            identities = [.. identities.Select(identity =>
+                identity with { SequenceNumber = after[identity.ProcessId] })];
             bool ownsConfigured = request.Port is not int configured ||
                 owned.Contains(configured);
 
@@ -139,6 +127,31 @@ internal static class SessionInspector
         {
             return new SessionInspectResult { RequestId = request.RequestId, Error = exception.Message };
         }
+    }
+
+    internal static List<SessionOwnedListener> ObserveOwnedListeners(
+        IReadOnlyList<(int Port, int Owner)> listeners, ProcessTreeSnapshot tree, int ancestor)
+    {
+        List<SessionOwnedListener> identities = [];
+        foreach ((int port, int owner) in listeners.Distinct())
+        {
+            if (!tree.IsSelfOrDescendant(owner, ancestor))
+            {
+                continue;
+            }
+            DateTimeOffset? startTime = tree.StartTimeOf(owner);
+            if (startTime is null)
+            {
+                return [];
+            }
+            identities.Add(new SessionOwnedListener
+            {
+                Port = port,
+                ProcessId = owner,
+                ProcessStartTimeUtc = startTime.Value
+            });
+        }
+        return identities;
     }
 
     private static IReadOnlyDictionary<int, ulong> CaptureSequences(

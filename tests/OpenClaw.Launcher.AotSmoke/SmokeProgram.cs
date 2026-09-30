@@ -3,6 +3,7 @@ using System.Text.Json;
 using OpenClaw.Launcher.Gateway;
 using OpenClaw.Launcher.Mxc;
 using OpenClaw.Launcher.Session;
+using OpenClaw.SessionHost;
 using OpenClaw.SessionProtocol;
 using LauncherProgram = OpenClaw.Launcher.Program;
 
@@ -51,6 +52,7 @@ internal static class SmokeProgram
             ("JSON failures survive NativeAOT", JsonFailureIsStructuredAsync),
             ("version JSON survives NativeAOT", VersionJsonIsStructuredAsync),
             ("Companion JSON survives NativeAOT", CompanionJsonIsStructured),
+            ("Companion snapshot and patch survive NativeAOT", CompanionSnapshotAndPatchAreStructured),
             ("Spectre renders clawctl output under NativeAOT", SpectreOutputRenders),
             ("gateway narration survives NativeAOT", GatewayNarrationRenders),
             ("Windows logon identity survives NativeAOT", WindowsLogonIdentityWorks),
@@ -251,6 +253,43 @@ internal static class SmokeProgram
         Assert(root.GetProperty("companion").GetProperty("token").GetString() == "fixture-token",
             "Companion's prepared agent token was missing from the native JSON document.");
 
+        return Task.CompletedTask;
+    }
+
+    private static Task CompanionSnapshotAndPatchAreStructured()
+    {
+        using Fixture fixture = Fixture.CreateWithoutApplication();
+        string configPath = Path.Combine(fixture.Root, "agent", ".openclaw", "openclaw.json");
+        using JsonDocument gateway = JsonDocument.Parse("{}");
+        string snapshot = JsonSerializer.Serialize(
+            new CompanionConfigSnapshot(gateway.RootElement, configPath, "initial-hash", false),
+            CompanionConfigPatchContext.Default.CompanionConfigSnapshot);
+        CompanionConfigPatch? patch = null;
+        SessionCompanionConfigResult result = SessionCompanionConfig.Configure(
+            new SessionCompanionConfigRequest { RequestId = "aot-snapshot", Port = 19001 },
+            configPath, File.WriteAllText,
+            (_, path) =>
+            {
+                patch = JsonSerializer.Deserialize(
+                    File.ReadAllText(path), CompanionConfigPatchContext.Default.CompanionConfigPatch);
+                Assert(patch is not null && patch.ExpectedHash == "initial-hash" &&
+                    patch.ExpectedPath == configPath &&
+                    !patch.ExpectedGateway.EnumerateObject().Any(),
+                    "The conditional patch lost its snapshot identity.");
+                string prepared = JsonSerializer.Serialize(
+                    patch, CompanionConfigPatchContext.Default.CompanionConfigPatch);
+                using JsonDocument preparedDocument = JsonDocument.Parse(prepared);
+                snapshot = JsonSerializer.Serialize(new CompanionConfigSnapshot(
+                    preparedDocument.RootElement.GetProperty("gateway"), configPath, "written-hash", true),
+                    CompanionConfigPatchContext.Default.CompanionConfigSnapshot);
+                return 0;
+            },
+            _ => (0, snapshot));
+
+        Assert(patch is not null && result.Port == 19001 && result.Token == patch.Gateway.Auth.Token,
+            "The prepared result did not survive the snapshot/patch round trip.");
+        Assert(!Directory.EnumerateFiles(Path.GetDirectoryName(configPath)!).Any(),
+            "The temporary credential patch was not removed.");
         return Task.CompletedTask;
     }
 

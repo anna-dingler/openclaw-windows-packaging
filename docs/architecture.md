@@ -212,24 +212,32 @@ package registration and qualified `clawctl.exe` alias. It probes
 contract. After setup, `clawctl companion prepare --port <port> --json`
 instructs [`SessionCompanionConfig`](../src/OpenClaw.SessionHost/SessionCompanionConfig.cs)
 to read the agent's effective Gateway configuration through upstream-owned
-runtime code. The public `openclaw config get` display command is redacted and
+runtime code. The packaged `plugin-sdk/health` snapshot reader runs with
+observation and suspicious-config recovery disabled, using core-only validation
+to avoid plugin-state and migration reads. The public
+`openclaw config get` display command is redacted and
 is not a credential-delivery path. A successful existing configuration must
 have `gateway.mode: "local"` and a loopback bind when specified; otherwise
 Companion requires explicit recovery rather than starting a Gateway with an
-incompatible mode. When an effective local loopback token configuration already
-exists, prepare returns it without rewriting the configuration file; otherwise
-the agent invokes packaged upstream `openclaw config patch` once to create the
-missing values.
+incompatible mode. A wholly absent or empty Gateway can be initialized; a
+partially configured Gateway without local mode requires explicit recovery.
+Implicit password authentication is incompatible even when a token is also
+present. When an effective local loopback token configuration already exists,
+prepare returns it without rewriting the configuration file. Otherwise the
+agent uses packaged upstream `plugin-sdk/config-mutation` to create missing
+values under the upstream mutation lock. The original config path, root hash,
+and effective Gateway must still match, including values read from `$include`
+files; a concurrent edit fails rather than being overwritten.
 Before pairing and publishing Companion's record, the package-qualified
-`clawctl companion prepare --check --json` checks that the agent's effective
-port and token still match the values used by Companion. The response contains
-a credential and must be kept private. This draft is blocked from release:
-the current upstream config loader may restore a backup when it observes a
-suspicious config, so the check cannot yet promise to leave the config intact.
-It needs an observation-free upstream effective-config API; documentation is
-not a substitute for that boundary.
+`clawctl companion prepare --check --json` returns the agent's effective port
+and token so Companion can compare them with its setup record. This check
+neither patches configuration, restores backups, nor records config-health
+observations. The response contains a credential and must be kept private.
 The host does not write a second profile, inherit the invoking user's profile
-overrides, or select device-installed Node.js. Incompatible configuration
+overrides, or select device-installed Node.js. The agent rejects profile and
+Gateway overrides both before and after upstream environment loading, and
+requires the upstream-selected config path to match the agent's default
+profile. Incompatible configuration
 requires explicit recovery rather than overwriting credentials.
 
 [`GatewayController`](../src/OpenClaw.Launcher/Gateway/GatewayController.cs)
@@ -237,6 +245,10 @@ starts, stops, and inspects the Gateway on Companion's behalf.
 When listener attribution is available, `clawctl gateway-service status --json`
 reports the recorded sandbox and agent SID alongside guest-observed listener
 process IDs, creation times, sequence numbers, and ports.
+Guest process-sequence snapshots bracket the listener and ancestry
+observations. Each listener and every ancestor used in attribution must have
+the same nonzero sequence in both snapshots; creation times come from that
+same tree observation.
 Those fields are evidence from the trusted package-qualified invocation, not
 a bearer credential or sufficient proof when copied out of context. Companion
 compares them with two fresh host-side listener and OS process-sequence

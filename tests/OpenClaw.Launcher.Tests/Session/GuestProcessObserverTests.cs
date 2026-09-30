@@ -172,6 +172,59 @@ public sealed class GuestProcessObserverTests
 
 public sealed class SessionInspectorTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SequenceSnapshotsBracketListenerObservationAndRejectReplacement(bool replaced)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        int captures = 0;
+        try
+        {
+            using Process current = Process.GetCurrentProcess();
+            SessionInspectResult result = SessionInspector.Inspect(
+                new SessionInspectRequest
+                {
+                    RequestId = "sequence-bracket",
+                    ProcessId = current.Id,
+                    ProcessStartTimeUtc = current.StartTime.ToUniversalTime(),
+                    HelperPath = current.MainModule!.FileName
+                },
+                _ => throw new FileNotFoundException(),
+                () =>
+                {
+                    if (++captures == 1)
+                    {
+                        listener.Start();
+                    }
+                    return new Dictionary<int, ulong>
+                    {
+                        [current.Id] = replaced && captures > 1 ? 102UL : 101UL
+                    };
+                });
+
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            Assert.Equal(2, captures);
+            Assert.True(result.IsOwnedAndHealthy);
+            Assert.Contains(port, result.ListeningPorts!);
+            if (replaced)
+            {
+                Assert.Null(result.OwnedListeners);
+            }
+            else
+            {
+                Assert.Contains(result.OwnedListeners!, identity =>
+                    identity.Port == port && identity.ProcessId == current.Id &&
+                    identity.SequenceNumber == 101 &&
+                    identity.ProcessStartTimeUtc == current.StartTime.ToUniversalTime());
+            }
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     public static IEnumerable<object[]> UnavailableSequenceCaptures()
     {
         yield return

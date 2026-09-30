@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using OpenClaw.SessionHost;
@@ -33,20 +35,47 @@ public sealed class SessionCompanionConfigTests : IDisposable
             RequestPath, File.ReadAllText, File.WriteAllText,
             profileRoot: Path.Combine(_root, "agent"),
             applyPatch: applyPatch,
-            readEffectiveConfiguration: _ => readEffectiveConfiguration?.Invoke() ?? ReadEffectiveConfiguration());
+            readEffectiveConfiguration: _ =>
+            {
+                (int exit, string output) = readEffectiveConfiguration?.Invoke() ?? ReadEffectiveConfiguration();
+                if (exit != 0)
+                {
+                    return (exit, output);
+                }
+                using JsonDocument gateway = JsonDocument.Parse(output);
+                return (0, JsonSerializer.Serialize(new CompanionConfigSnapshot(
+                    gateway.RootElement, ConfigPath,
+                    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                        File.Exists(ConfigPath) ? File.ReadAllText(ConfigPath) : ""))),
+                    File.Exists(ConfigPath)), CompanionConfigPatchContext.Default.CompanionConfigSnapshot));
+            });
+    }
+
+    private int RunWithoutPatch(
+        SessionCompanionConfigRequest request,
+        Func<(int ExitCode, string Output)>? readEffectiveConfiguration = null)
+    {
+        bool patchAttempted = false;
+        int exit = Run(request, (_, _) =>
+        {
+            patchAttempted = true;
+            return 17;
+        }, readEffectiveConfiguration);
+        Assert.False(patchAttempted, "This operation must not attempt a configuration write.");
+        return exit;
     }
 
     private (int ExitCode, string Output) ReadEffectiveConfiguration()
     {
         if (!File.Exists(ConfigPath))
         {
-            return (1, """{"ok":false,"error":{"message":"Config path is valid but unset: gateway."}}""");
+            return (0, "{}");
         }
 
         JsonObject config = JsonNode.Parse(File.ReadAllText(ConfigPath))!.AsObject();
         return config["gateway"] is JsonNode gateway
             ? (0, gateway.ToJsonString())
-            : (1, """{"ok":false,"error":{"message":"Config path is valid but unset: gateway."}}""");
+            : (0, "{}");
     }
 
     private int ApplyPatch(SessionCompanionConfigRequest request, string patchPath)
@@ -129,18 +158,9 @@ public sealed class SessionCompanionConfigTests : IDisposable
             {"mode":"local","port":20123,"bind":"loopback",
             "auth":{"mode":"token","token":"included-token"}}
             """);
-        int firstPrepareExitCode = Run(
-            Request(),
-            (_, _) => throw new InvalidOperationException("A complete effective configuration must not patch."),
-            readEffectiveConfiguration);
-        int repeatedPrepareExitCode = Run(
-            Request(),
-            (_, _) => throw new InvalidOperationException("A complete effective configuration must not patch."),
-            readEffectiveConfiguration);
-        int checkExitCode = Run(
-            Request(port: 0) with { CheckOnly = true },
-            (_, _) => throw new InvalidOperationException("Check must not patch."),
-            readEffectiveConfiguration);
+        int firstPrepareExitCode = RunWithoutPatch(Request(), readEffectiveConfiguration);
+        int repeatedPrepareExitCode = RunWithoutPatch(Request(), readEffectiveConfiguration);
+        int checkExitCode = RunWithoutPatch(Request(port: 0) with { CheckOnly = true }, readEffectiveConfiguration);
 
         Assert.Equal(0, firstPrepareExitCode);
         Assert.Equal(0, repeatedPrepareExitCode);
@@ -164,9 +184,8 @@ public sealed class SessionCompanionConfigTests : IDisposable
             """;
         File.WriteAllText(ConfigPath, config);
 
-        int exitCode = Run(
+        int exitCode = RunWithoutPatch(
             Request(),
-            (_, _) => throw new InvalidOperationException("A redacted configuration must not patch."),
             () => (0, """
                 {"mode":"local","port":20123,"bind":"loopback",
                 "auth":{"mode":"token","token":"__OPENCLAW_REDACTED__"}}
@@ -190,8 +209,7 @@ public sealed class SessionCompanionConfigTests : IDisposable
             """;
         File.WriteAllText(ConfigPath, config);
 
-        int exitCode = Run(Request(port: 0) with { CheckOnly = true },
-            (_, _) => throw new InvalidOperationException("Check must not patch."));
+        int exitCode = RunWithoutPatch(Request(port: 0) with { CheckOnly = true });
 
         Assert.Equal(0, exitCode);
         SessionCompanionConfigResult result = SessionCompanionConfigProtocol.ReadResult(
@@ -204,8 +222,7 @@ public sealed class SessionCompanionConfigTests : IDisposable
     [Fact]
     public void CheckOnlyMissingConfigFailsWithoutPatching()
     {
-        int exitCode = Run(Request(port: 0) with { CheckOnly = true },
-            (_, _) => throw new InvalidOperationException("Check must not patch."));
+        int exitCode = RunWithoutPatch(Request(port: 0) with { CheckOnly = true });
 
         Assert.Equal(SessionLaunchProtocol.HelperFailureExitCode, exitCode);
         Assert.Contains("missing", SessionCompanionConfigProtocol.ReadResult(
@@ -221,8 +238,7 @@ public sealed class SessionCompanionConfigTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
         File.WriteAllText(ConfigPath, config);
 
-        int exitCode = Run(Request(port: 0) with { CheckOnly = true },
-            (_, _) => throw new InvalidOperationException("Check must not patch."));
+        int exitCode = RunWithoutPatch(Request(port: 0) with { CheckOnly = true });
 
         Assert.Equal(SessionLaunchProtocol.HelperFailureExitCode, exitCode);
         Assert.NotNull(SessionCompanionConfigProtocol.ReadResult(
@@ -233,15 +249,18 @@ public sealed class SessionCompanionConfigTests : IDisposable
     [Theory]
     [InlineData("""{"gateway":{"mode":"remote"}}""")]
     [InlineData("""{"gateway":{"port":19001,"auth":{"mode":"token","token":"existing-token"}}}""")]
-    [InlineData("""{"gateway":{"bind":"lan"}}""")]
-    [InlineData("""{"gateway":{"auth":{"mode":"password"}}}""")]
-    [InlineData("""{"gateway":{"auth":{"token":""}}}""")]
+    [InlineData("""{"gateway":{"mode":"local","bind":"lan"}}""")]
+    [InlineData("""{"gateway":{"mode":"local","auth":{"mode":"password"}}}""")]
+    [InlineData("""{"gateway":{"mode":"local","auth":{"token":""}}}""")]
+    [InlineData("""{"gateway":{"mode":"local","auth":{"password":"keep-password"}}}""")]
+    [InlineData("""{"gateway":{"mode":"local","port":19001,"auth":{"password":"keep-password","token":"not-used"}}}""")]
+    [InlineData("""{"gateway":{"mode":"local","port":19001,"remote":{"password":"fallback-password"}}}""")]
+    [InlineData("""{"gateway":{"mode":"local","port":19001,"auth":{"token":"not-used"},"remote":{"password":"fallback-password"}}}""")]
     public void ExistingIncompatibleConfigFailsBeforeAnyWrite(string config)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
         File.WriteAllText(ConfigPath, config);
-        int exitCode = Run(Request(), (_, _) => throw new InvalidOperationException(
-            "An incompatible config must not be patched."));
+        int exitCode = RunWithoutPatch(Request());
 
         Assert.Equal(SessionLaunchProtocol.HelperFailureExitCode, exitCode);
         Assert.NotNull(SessionCompanionConfigProtocol.ReadResult(
@@ -286,22 +305,41 @@ public sealed class SessionCompanionConfigTests : IDisposable
             }), "companion-1"));
     }
 
-    [Fact]
-    public void AgentProfileOverrideCannotRedirectTheConfigurationWrite()
+    [Theory]
+    [InlineData("""{"models":{"custom":"preserved"}}""")]
+    [InlineData("""{"models":{"custom":"preserved"},"gateway":{}}""")]
+    public void ExistingConfigWithoutGatewayCanBePreparedButNotChecked(string config)
     {
-        File.WriteAllText(RequestPath, SessionCompanionConfigProtocol.SerializeRequest(Request()));
+        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
+        File.WriteAllText(ConfigPath, config);
 
-        int exitCode = SessionCompanionConfig.Run(
-            RequestPath, File.ReadAllText, File.WriteAllText,
-            profileRoot: Path.Combine(_root, "agent"),
-            applyPatch: (_, _) => throw new InvalidOperationException("Must not apply."),
-            readEnvironmentVariable: name =>
-                name == "OPENCLAW_CONFIG_PATH" ? @"C:\unrelated\openclaw.json" : null);
+        int checkExit = RunWithoutPatch(Request(port: 0) with { CheckOnly = true });
 
-        Assert.Equal(SessionLaunchProtocol.HelperFailureExitCode, exitCode);
-        Assert.Contains("OPENCLAW_CONFIG_PATH", SessionCompanionConfigProtocol.ReadResult(
-            File.ReadAllText(ResultPath), "companion-1").Error, StringComparison.Ordinal);
-        Assert.False(File.Exists(ConfigPath));
+        Assert.Equal(SessionLaunchProtocol.HelperFailureExitCode, checkExit);
+        Assert.Equal(config, File.ReadAllText(ConfigPath));
+
+        Assert.Equal(0, Run(Request(), ApplyPatch));
+        JsonObject prepared = JsonNode.Parse(File.ReadAllText(ConfigPath))!.AsObject();
+        Assert.Equal("preserved", prepared["models"]!["custom"]!.GetValue<string>());
+        Assert.Equal("local", prepared["gateway"]!["mode"]!.GetValue<string>());
+        Assert.Equal(0, RunWithoutPatch(Request(port: 0) with { CheckOnly = true }));
+    }
+
+    [Fact]
+    public void ExplicitTokenModeDoesNotInferPasswordAuthentication()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
+        const string config = """
+            {"gateway":{"mode":"local","port":19001,
+              "auth":{"mode":"token","token":"effective-token","password":"unused-password"},
+              "remote":{"password":"unused-remote-password"}}}
+            """;
+        File.WriteAllText(ConfigPath, config);
+
+        Assert.Equal(0, RunWithoutPatch(Request()));
+        Assert.Equal("effective-token", SessionCompanionConfigProtocol.ReadResult(
+            File.ReadAllText(ResultPath), "companion-1").Token);
+        Assert.Equal(config, File.ReadAllText(ConfigPath));
     }
 
     [Fact]

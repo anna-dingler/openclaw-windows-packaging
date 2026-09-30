@@ -165,6 +165,71 @@ public sealed class ProcessTreeSnapshotTests
             () => OwnedPorts(session, (GatewayPort, Supervisor), (18790, Gateway)));
     }
 
+    [Theory]
+    [InlineData(GatewayChild)]
+    [InlineData(Gateway)]
+    [InlineData(Supervisor)]
+    public void ReplacedProcessAnywhereInAncestryInvalidatesIdentity(int replaced)
+    {
+        ProcessTreeSnapshot tree = GatewaySession().Observe();
+        Dictionary<int, ulong> before = new()
+        {
+            [Supervisor] = 10,
+            [Gateway] = 11,
+            [GatewayChild] = 12
+        };
+        Dictionary<int, ulong> after = new(before) { [replaced] = 99 };
+
+        var identities = SessionInspector.ObserveOwnedListeners([(GatewayPort, GatewayChild)], tree, Supervisor);
+
+        Assert.Single(identities);
+        Assert.False(tree.HasStableAncestry(GatewayChild, Supervisor, before, after));
+    }
+
+    [Theory]
+    [InlineData(GatewayChild)]
+    [InlineData(Gateway)]
+    [InlineData(Supervisor)]
+    public void MissingOrZeroSequenceAnywhereInAncestryInvalidatesIdentity(int missing)
+    {
+        ProcessTreeSnapshot tree = GatewaySession().Observe();
+        Dictionary<int, ulong> complete = new()
+        {
+            [Supervisor] = 10,
+            [Gateway] = 11,
+            [GatewayChild] = 12
+        };
+        Dictionary<int, ulong> incomplete = new(complete);
+        incomplete.Remove(missing);
+
+        Assert.False(tree.HasStableAncestry(GatewayChild, Supervisor, incomplete, complete));
+        Assert.False(tree.HasStableAncestry(GatewayChild, Supervisor, complete, incomplete));
+        incomplete[missing] = 0;
+        Assert.False(tree.HasStableAncestry(GatewayChild, Supervisor, incomplete, incomplete));
+    }
+
+    [Fact]
+    public void StableIdentityReusesTheCreationTimeObservedForAncestry()
+    {
+        SyntheticSession session = GatewaySession();
+        ProcessTreeSnapshot tree = session.Observe();
+        Dictionary<int, ulong> sequences = new()
+        {
+            [Supervisor] = 10,
+            [Gateway] = 11,
+            [GatewayChild] = 12
+        };
+        Assert.Equal([GatewayPort], GuestProcessObserver.ListeningPortsOwnedBy(
+            [(GatewayPort, GatewayChild)], tree, Supervisor));
+        session.WithStartTime(GatewayChild, At(99));
+
+        var identity = Assert.Single(SessionInspector.ObserveOwnedListeners(
+            [(GatewayPort, GatewayChild)], tree, Supervisor));
+
+        Assert.Equal(At(2), identity.ProcessStartTimeUtc);
+        Assert.True(tree.HasStableAncestry(GatewayChild, Supervisor, sequences, sequences));
+    }
+
     private static DateTimeOffset At(int seconds) => Boot.AddSeconds(seconds);
 
     private static IReadOnlyList<int> OwnedPorts(
