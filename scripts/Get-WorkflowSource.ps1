@@ -15,10 +15,10 @@ $ErrorActionPreference = 'Stop'
 
 $policy = Read-OpenClawReleasePolicy -Path $PolicyPath
 $releaseMode = $SigningMode -in @('official', 'store')
-if ($releaseMode -and $Ref -ne '' -and
-    ($Ref -cnotmatch '\A[0-9a-fA-F]{40}\z' -or $Ref -ine $policy.approvedCommit)) {
-    throw 'Release publication requires the full reviewed approvedCommit for an explicit Ref.'
+if ($releaseMode -and $Ref -ne '' -and $Ref -cnotmatch '\A[0-9a-fA-F]{40}\z') {
+    throw 'Release publication requires an empty Ref or a full SHA matching stable.'
 }
+$sourceRef = if ($releaseMode) { '' } else { $Ref }
 if ($ReuseSnapshot) {
     if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
         throw 'The source snapshot is unavailable. Start a new workflow run; do not re-resolve a retry.'
@@ -27,22 +27,15 @@ if ($ReuseSnapshot) {
 }
 else {
     if (Test-Path -LiteralPath $OutputPath) { throw "The source snapshot already exists: $OutputPath" }
-    $source = Resolve-OpenClawSource -Policy $policy -Ref $Ref
+    $source = Resolve-OpenClawSource -Policy $policy -Ref $sourceRef
 }
-Assert-OpenClawSource -Source $source -Policy $policy
-$expectedRef = if ($Ref -eq '') { Get-OpenClawPolicyRef $policy } else { $Ref }
-if ($source.requestedRef -cne $expectedRef -or (($Ref -eq '') -ne ($source.channel -ceq 'stable'))) {
+Assert-OpenClawSource -Source $source -Policy $policy -RequireChannel:$releaseMode
+$expectedRef = if ($sourceRef -eq '') { Get-OpenClawPolicyRef $policy } else { $sourceRef }
+if ($source.requestedRef -cne $expectedRef -or (($sourceRef -eq '') -ne ($source.channel -ceq 'stable'))) {
     throw 'The source snapshot does not match the requested selector.'
 }
-if ($releaseMode) {
-    Assert-OpenClawSourceText $policy.approvedCommit 'approvedCommit' -Pattern '\A[0-9a-fA-F]{40}\z'
-    Assert-OpenClawSourceText $policy.payloadPackageVersion 'payloadPackageVersion'
-    Assert-OpenClawSourceText $policy.gatewayTag 'gatewayTag'
-    if ($source.resolvedCommit -ine $policy.approvedCommit -or
-        $source.packageVersion -cne $policy.payloadPackageVersion -or
-        "v$($source.packageVersion)" -cne $policy.gatewayTag) {
-        throw 'Release publication requires the reviewed approvedCommit, payloadPackageVersion, and gatewayTag.'
-    }
+if ($releaseMode -and $Ref -ne '' -and $Ref -ine $source.resolvedCommit) {
+    throw 'The requested full SHA does not match the captured stable release.'
 }
 $context = [ordered]@{
     workflowRunId = $WorkflowRunId
