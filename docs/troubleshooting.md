@@ -350,6 +350,87 @@ collector does not enumerate arbitrary agent-profile files. The host log and
 manifest also name local paths, such as the install location of a loose-layout
 registration, and the agent account.
 
+## Investigating a bundle with Copilot CLI
+
+The repository includes a
+[`collect-logs-investigator` agent](../.github/agents/collect-logs-investigator.agent.md)
+for evidence-based investigation. In GitHub Copilot CLI, select the agent and
+provide a file or folder accessible to that session. For example, with a ZIP
+in your current directory:
+
+```text
+/agent collect-logs-investigator
+Investigate @.\openclaw-diagnostics.zip
+```
+
+You can instead specify a folder containing a ZIP, an extracted bundle, or
+diagnostic logs, or supply a single log file. With several bundles, give a
+timeframe or name the one to investigate; the agent will ask rather than
+silently choose the newest or combine unrelated incidents. No fixed drive or
+logs directory is required.
+
+To collect and investigate on the machine where the agent runs, explicitly
+request it, for example: "Run `clawctl collect-logs` on this machine and
+investigate the result." The agent uses `clawctl collect-logs --json`, validates
+the returned ZIP, and preserves it. Collection can start the recorded session
+and write/stage diagnostics; it is not a passive operation. The agent will not
+collect merely because no input was provided, install missing tools, or run
+other package lifecycle commands.
+
+You can add guidance, such as the failing command, expected result, approximate
+failure time and timezone, or whether the run happened on a VM. Guidance is
+optional. A GitHub-hosted agent can investigate evidence made accessible in
+its workspace, but cannot read a path on your computer or collect from that
+computer through an unrelated runner. If the target is elsewhere, supply its
+diagnostics or collect there; this machine's state is not a substitute.
+
+The report leads with findings and next steps, including verified recovery or
+workaround commands when available and their prerequisites, effects, and
+success checks. Supporting versions, evidence, and related issue/fix/release
+links follow at the bottom. Once the evidence conclusively identifies the
+issue and a useful next action, the agent stops rather than collecting
+unnecessary context. A known issue whose fix is not yet available needs a
+clear answer, not another bundle or a complete version inventory.
+
+When further investigation is needed, the agent provides copy/pastable,
+targeted steps near the top of the report and offers to save a handoff Markdown
+file at a new path you choose. Unresolved reports use an explicit order:
+finding, next steps, a fenced incident-specific investigation prompt, the
+handoff-file offer, then supporting context. A recovery/workaround command
+does not replace that prompt when the cause still needs investigation.
+Knowing the rejected operation or error code is not a conclusive causal
+explanation; unknown credential or pairing history still requires this flow.
+The handoff includes the incident facts,
+remaining questions, essential Windows packaging context, full source links,
+and a starter prompt for another Copilot session. It does not require that
+session to know this conversation, have this agent installed, or have a source
+checkout or GitHub access. Supply the referenced evidence files with it.
+
+The handoff guides that session toward a supported resolution or, if the
+problem remains unresolved, a reviewed evidence package with findings,
+relevant original/new diagnostics, collection warnings, and precise remaining
+gaps. Collection, state-changing reproduction/recovery, and evidence-package
+creation require explicit authorization; neither documents nor packages are
+written or uploaded automatically.
+
+The agent checks public GitHub issues, fixes, and releases separately.
+It distinguishes an upstream fix from its adoption into a Windows package,
+and a GitHub sideload release from unverified Store availability. Missing
+evidence results in targeted requests for source-machine context or specific
+`collect-logs`/logging improvement recommendations, not a guessed diagnosis.
+If evidence is missing or unreadable, provide an accessible file/folder or
+explicitly request collection on the correct machine; if public
+GitHub access is unavailable, release and issue status remains unverified.
+
+Review the ZIP before supplying it: best-effort redaction can leave private
+information. Copilot processes the supplied content; "local" describes where
+the CLI reads the file, not offline model processing. The agent does not upload
+the ZIP to issue trackers or execute its contents. Except for explicitly
+requested collection, it does not run package commands or change package/session
+state. It uses sanitized signatures for public GitHub searches
+and does not treat this computer's installed state as evidence of another
+machine's failure.
+
 ## Bug report collection checklist
 
 Attach the reviewed diagnostics ZIP, the exact command and complete output,
